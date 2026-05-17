@@ -40,7 +40,7 @@ def rotate_mp4(
     source_mp4: Path,
     output_mp4: Path,
     degrees: int,
-    crf: int = 18,
+    crf: int = 16,
     preset: str = "medium",
 ) -> Path:
     """Rotate `source_mp4` by `degrees` (90 / 180 / 270) into `output_mp4`.
@@ -94,7 +94,15 @@ def rotate_mp4(
         "-g", "25",
         "-keyint_min", "25",
         "-sc_threshold", "0",
-        "-x264-params", "no-scenecut=1:bframes=0:ref=1",
+        "-x264-params", "no-scenecut=1:bframes=0:ref=1:cabac=0",
+        # Cap peak bitrate so the decoder doesn't get spikes
+        "-maxrate", "3500k",
+        "-bufsize", "7000k",
+        # Match common BT.709 metadata (matches what most cameras / display
+        # decoders expect; avoids subtle color shifts)
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
         # Container hint: front-load moov
         "-movflags", "+faststart",
         # No audio
