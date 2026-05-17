@@ -22,6 +22,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from library.turtheme import (  # noqa: E402
     parse_turtheme,
+    export_theme_dir,
     DataWidget,
     TextWidget,
     ChartWidget,
@@ -133,6 +134,22 @@ def main() -> int:
         metavar="DIR",
         help="Dump embedded image widget bitmaps as PNG/JPG to this directory",
     )
+    p.add_argument(
+        "--emit-theme",
+        type=Path,
+        metavar="OUT_DIR",
+        help=(
+            "Write a complete theme directory at OUT_DIR: theme.yaml + "
+            "video/<name>.mp4 + images/*. Use --video-src to point at the "
+            "source MP4 (will be copied)."
+        ),
+    )
+    p.add_argument(
+        "--video-src",
+        type=Path,
+        metavar="MP4",
+        help="Source MP4 to copy into <OUT_DIR>/video/ (used with --emit-theme)",
+    )
     args = p.parse_args()
 
     in_path = Path(args.turtheme).expanduser().resolve()
@@ -141,7 +158,21 @@ def main() -> int:
         return 1
 
     theme = parse_turtheme(in_path)
-    return print_report(theme, args.extract_bitmaps)
+    rc = print_report(theme, args.extract_bitmaps)
+    if rc != 0:
+        return rc
+
+    if args.emit_theme:
+        out_dir = args.emit_theme.expanduser().resolve()
+        print(f"\nEmitting theme directory to {out_dir} ...")
+        export_theme_dir(theme, out_dir, video_src=args.video_src)
+        print(f"  done. Layout:")
+        for p in sorted(out_dir.rglob("*")):
+            rel = p.relative_to(out_dir)
+            tag = "DIR " if p.is_dir() else f"{p.stat().st_size:>9} B"
+            print(f"    {tag}  {rel}")
+
+    return 0
 
 
 if __name__ == "__main__":

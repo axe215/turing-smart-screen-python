@@ -17,6 +17,11 @@ from .parser import (
     Color,
     Alignment,
 )
+from .yaml_emitter import (
+    export_theme_dir,
+    to_yaml_dict,
+    LEGACY_SOURCE_MAP,
+)
 
 __all__ = [
     "parse_turtheme",
@@ -29,4 +34,7 @@ __all__ = [
     "FontConfig",
     "Color",
     "Alignment",
+    "export_theme_dir",
+    "to_yaml_dict",
+    "LEGACY_SOURCE_MAP",
 ]
