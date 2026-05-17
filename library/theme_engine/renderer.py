@@ -1,0 +1,193 @@
+"""Render a ThemeRuntime + live data into a full-screen RGBA frame.
+
+The theme is designed in landscape (1920×480 for eva.rei). The screen
+takes images in portrait native (480×1920 for 8.8", 462×1920 for 9.2").
+We render to the landscape design canvas, then rotate to portrait at
+the end, optionally cropping to 462 wide for the 9.2".
+"""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Dict, Optional, Tuple
+
+from PIL import Image, ImageDraw, ImageFont
+
+from .data_sources import DataSourceRegistry
+from .runtime import FontSpec, ThemeRuntime, WidgetSpec
+
+log = logging.getLogger(__name__)
+
+
+# Native portrait dimensions per device generation
+SCREEN_NATIVE = {
+    "8.8": (480, 1920),
+    "9.2": (462, 1920),
+}
+
+
+class WidgetRenderer:
+    def __init__(
+        self,
+        theme: ThemeRuntime,
+        data_sources: DataSourceRegistry,
+        screen: str = "9.2",
+    ):
+        self.theme = theme
+        self.sources = data_sources
+        self.font_cache: Dict[Tuple[str, int, bool], ImageFont.ImageFont] = {}
+        self.image_cache: Dict[Path, Image.Image] = {}
+        self.native_w, self.native_h = SCREEN_NATIVE.get(screen, SCREEN_NATIVE["9.2"])
+        self.design_w = theme.canvas.width
+        self.design_h = theme.canvas.height
+
+    # ------------------------------------------------------------------
+    # Public
+    # ------------------------------------------------------------------
+
+    def render_frame(self, rotate_180: bool = False) -> Image.Image:
+        """Build a full-screen RGBA PIL image ready to send via cmd 102.
+
+        Output is in **portrait native** orientation expected by the
+        firmware (native_w × native_h).
+        """
+        # Design surface: theme's canvas (landscape) with transparent bg
+        canvas = Image.new("RGBA", (self.design_w, self.design_h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(canvas)
+
+        for w in self.theme.widgets:
+            if w.hide or not w.enabled:
+                continue
+            try:
+                self._render_widget(canvas, draw, w)
+            except Exception as exc:
+                log.warning("Failed to render widget %s: %s", w.id, exc)
+
+        # Convert landscape (design_w × design_h) → portrait (h × w)
+        # by rotating 90° clockwise (Pillow ROTATE_270 is CCW so we use ROTATE_90)
+        portrait = canvas.transpose(Image.Transpose.ROTATE_270)
+
+        # Crop to native width — for 9.2" this trims 18px from the long edge
+        if portrait.width > self.native_w:
+            # Crop centered horizontally (so the layout's middle stays in frame)
+            x_off = (portrait.width - self.native_w) // 2
+            portrait = portrait.crop((x_off, 0, x_off + self.native_w, portrait.height))
+        # If the native height differs (it shouldn't for 1920), pad/crop too
+        if portrait.height > self.native_h:
+            portrait = portrait.crop((0, 0, portrait.width, self.native_h))
+        elif portrait.height < self.native_h:
+            padded = Image.new("RGBA", (portrait.width, self.native_h), (0, 0, 0, 0))
+            padded.paste(portrait, (0, 0))
+            portrait = padded
+
+        if rotate_180:
+            portrait = portrait.transpose(Image.Transpose.ROTATE_180)
+
+        return portrait
+
+    # ------------------------------------------------------------------
+    # Per-widget rendering
+    # ------------------------------------------------------------------
+
+    def _render_widget(self, canvas: Image.Image, draw: ImageDraw.ImageDraw, w: WidgetSpec):
+        if w.type == "data":
+            self._render_data(draw, w)
+        elif w.type == "text":
+            self._render_text(draw, w, w.text)
+        elif w.type == "image":
+            self._render_image(canvas, w)
+        elif w.type == "chart":
+            self._render_chart_stub(draw, w)
+        else:
+            log.debug("Skipping widget %s (unknown type %s)", w.id, w.type)
+
+    def _render_data(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
+        fn = self.sources.get(w.source)
+        try:
+            text = fn(w.show_unit)
+        except Exception as exc:
+            log.warning("Source %s failed: %s", w.source, exc)
+            text = "—"
+        self._render_text(draw, w, text)
+
+    def _render_text(self, draw: ImageDraw.ImageDraw, w: WidgetSpec, text: str):
+        if not text:
+            return
+        font = self._load_font(w.font)
+        color = (w.font.color if w.font else (255, 255, 255, 255))
+        # Pillow draw.text accepts RGBA only for RGBA images — our canvas is RGBA so ok
+        draw.text((w.x, w.y), text, font=font, fill=color)
+
+    def _render_image(self, canvas: Image.Image, w: WidgetSpec):
+        if not w.image:
+            return
+        img_path = self.theme.image_path(w.image)
+        if not img_path.exists():
+            log.warning("Image %s not found at %s", w.image, img_path)
+            return
+        cached = self.image_cache.get(img_path)
+        if cached is None:
+            try:
+                cached = Image.open(img_path).convert("RGBA")
+            except Exception as exc:
+                log.warning("Failed to open image %s: %s", img_path, exc)
+                return
+            self.image_cache[img_path] = cached
+        img = cached
+        if abs(w.scale - 1.0) > 1e-6 and w.scale > 0:
+            new_w = max(1, int(img.width * w.scale))
+            new_h = max(1, int(img.height * w.scale))
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+        canvas.alpha_composite(img, dest=(w.x, w.y))
+
+    def _render_chart_stub(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
+        """Placeholder rectangle for chart widgets — proper chart will land in Phase 4b."""
+        if w.width <= 0 or w.height <= 0:
+            return
+        outline = w.border_color or (255, 255, 255, 255)
+        fill = w.fill_color or (0, 0, 0, 40)
+        draw.rectangle(
+            [w.x, w.y, w.x + w.width, w.y + w.height],
+            outline=outline,
+            fill=fill,
+            width=w.border_width,
+        )
+
+    # ------------------------------------------------------------------
+    # Font loading
+    # ------------------------------------------------------------------
+
+    def _load_font(self, spec: Optional[FontSpec]) -> ImageFont.ImageFont:
+        if spec is None or not spec.family:
+            return ImageFont.load_default()
+        key = (spec.family, spec.size, spec.bold)
+        cached = self.font_cache.get(key)
+        if cached is not None:
+            return cached
+
+        font = None
+        # 1) Look inside <theme_dir>/fonts/{family}.{ttf,otf} with various spellings
+        for ext in (".ttf", ".otf", ".TTF", ".OTF"):
+            for variant in (spec.family, spec.family.replace(" ", ""), spec.family.replace(" ", "_")):
+                candidate = self.theme.theme_dir / "fonts" / f"{variant}{ext}"
+                if candidate.exists():
+                    try:
+                        font = ImageFont.truetype(str(candidate), spec.size)
+                        break
+                    except OSError:
+                        pass
+            if font is not None:
+                break
+        # 2) Try PIL system lookup by family name
+        if font is None:
+            try:
+                font = ImageFont.truetype(spec.family, spec.size)
+            except OSError:
+                pass
+        # 3) Default fallback
+        if font is None:
+            log.warning("Font %s not found — using default", spec.family)
+            font = ImageFont.load_default()
+
+        self.font_cache[key] = font
+        return font
