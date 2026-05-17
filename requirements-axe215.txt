@@ -1,0 +1,13 @@
+# Extra dependencies added by the axe215 fork.
+#
+# Kept separate from upstream's requirements.txt so we can clean-merge from
+# mathoudebine/main without conflicts. Install with:
+#
+#   pip install -r requirements-axe215.txt
+
+# Used by the vendored nrbf.py (.NET BinaryFormatter parser) for the
+# .turtheme reader. Old library — relies on collections.Mapping / Sequence,
+# which moved to collections.abc in Python 3.10+. We apply a compatibility
+# shim in library/turtheme/parser.py before importing nrbf, so no patching
+# of namedlist itself is required.
+namedlist~=1.8
