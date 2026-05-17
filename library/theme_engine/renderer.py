@@ -143,25 +143,40 @@ class WidgetRenderer:
         if not text:
             return
         font = self._load_font(w.font)
-        color = (w.font.color if w.font else (255, 255, 255, 255))
-        # Add a 2px black stroke around the text so it stays readable over
-        # any background (light video frames, photographic theme overlays,
-        # etc.). Without it, white text disappears against light pixels.
-        # Per-widget override via raw["stroke_width"] / raw["stroke_color"].
-        stroke_width = int(w.raw.get("stroke_width", 2))
-        stroke_color = tuple(w.raw.get("stroke_color", [0, 0, 0, 255]))
+
+        # Default colors depend on widget type:
+        #   - Text widgets (static labels: UPLOAD, USED, %) → BLACK fill
+        #     + WHITE stroke. Subdued look, de-emphasized vs metrics, and
+        #     reads cleanly over both dark and light video frames.
+        #   - Data/chart widgets (live values: CPU temp, GPU%, etc.) →
+        #     WHITE fill from theme + BLACK stroke. The live numbers
+        #     "pop" against everything else.
+        # Per-widget YAML overrides (fill_color / stroke_color /
+        # stroke_width) still win.
+        base_color = w.font.color if w.font else (255, 255, 255, 255)
+        if w.type == "text":
+            default_fill = (0, 0, 0, 255)
+            default_stroke = (255, 255, 255, 255)
+        else:
+            default_fill = base_color
+            default_stroke = (0, 0, 0, 255)
+
+        fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else default_fill
+        stroke_color = tuple(w.raw["stroke_color"]) if "stroke_color" in w.raw else default_stroke
+        stroke_width = int(w.raw.get("stroke_width", 1))
+
         try:
             draw.text(
                 (w.x, w.y),
                 text,
                 font=font,
-                fill=color,
+                fill=fill,
                 stroke_width=stroke_width,
                 stroke_fill=stroke_color,
             )
         except TypeError:
             # Older Pillow without stroke_* kwargs — fall back to plain text
-            draw.text((w.x, w.y), text, font=font, fill=color)
+            draw.text((w.x, w.y), text, font=font, fill=fill)
 
     def _render_image(self, canvas: Image.Image, w: WidgetSpec):
         if not w.image:
