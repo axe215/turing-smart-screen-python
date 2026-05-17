@@ -28,7 +28,16 @@ log = logging.getLogger(__name__)
 
 
 class StreamingThread(threading.Thread):
-    """Loop an H.264 file to the screen until stop() is called."""
+    """Loop an H.264 file to the screen until stop() is called.
+
+    Yields between chunks so the widget thread can grab the USB lock and
+    push overlays without starving (Python's threading.Lock is not fair —
+    the streamer would otherwise re-acquire immediately after release).
+
+    Also paces sends to roughly the video's own bitrate so we don't
+    over-fill the screen's decoder buffer (which was triggering the
+    flow-control loop and causing observed judder).
+    """
 
     def __init__(
         self,
@@ -37,6 +46,8 @@ class StreamingThread(threading.Thread):
         usb_lock: threading.Lock,
         brightness: int = 32,
         framerate: int = 25,
+        target_kbps: int = 2400,
+        yield_ms: float = 30.0,
     ):
         super().__init__(daemon=True, name="StreamingThread")
         self.dev = dev
@@ -44,6 +55,10 @@ class StreamingThread(threading.Thread):
         self.usb_lock = usb_lock
         self.brightness = brightness
         self.framerate = framerate
+        # Target steady-state feed rate (matches the rotated MP4's CBR).
+        self.target_bytes_per_sec = max(1, target_kbps * 1024 // 8)
+        # Minimum yield between chunks so the widget thread can win the lock.
+        self.yield_s = max(0.0, yield_ms / 1000.0)
         self.stop_event = threading.Event()
         self.chunk_size = 202752
         self.chunks_streamed = 0
@@ -92,6 +107,7 @@ class StreamingThread(threading.Thread):
             while not self.stop_event.is_set():
                 with open(self.h264_path, "rb") as f:
                     while not self.stop_event.is_set():
+                        cycle_start = time.monotonic()
                         data = f.read(self.chunk_size)
                         if not data:
                             break
@@ -113,6 +129,19 @@ class StreamingThread(threading.Thread):
                         st = self._simple_cmd(CMD_GET_STREAM_STATUS)
                         if st and len(st) > 8 and st[8] > 3:
                             time.sleep(0.05)
+
+                        # Pace the feed to match the video's CBR — prevents
+                        # filling the screen's decoder buffer beyond what
+                        # it can use, which was eating into flow-control
+                        # and producing periodic judder.
+                        target_cycle_s = chunksize / self.target_bytes_per_sec
+                        elapsed = time.monotonic() - cycle_start
+                        # Always sleep at least `yield_s` so the widget
+                        # thread can win the USB lock between chunks
+                        # (Python locks aren't fair).
+                        sleep_s = max(self.yield_s, target_cycle_s - elapsed)
+                        if sleep_s > 0:
+                            time.sleep(sleep_s)
         finally:
             try:
                 self._simple_cmd(CMD_STOP_STREAM)
