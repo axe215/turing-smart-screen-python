@@ -31,7 +31,11 @@ SCREEN_NATIVE = {
 # pull in from their system rather than bundling. Tweak per-theme via
 # YAML font_aliases if you have a closer match.
 FONT_FALLBACKS = {
-    "Digital Dismay": ["Motorblock", "i_fink_u_freeky", "Kamikaze", "Shenttpuro Font"],
+    # Digital Dismay is the UsbMonitorL author's font of choice for big
+    # numeric readouts (CPU/GPU temp, FPS). Prefer narrow LCD-styled
+    # substitutes from the bundle — wider grunge fonts cause widgets to
+    # overflow their column and visually collide with neighbours.
+    "Digital Dismay": ["DS-Digital", "LCD", "Liquid Crystal", "Motorblock", "Kamikaze"],
     "LCD-Dismay": ["DS-Digital", "LCD", "Liquid Crystal"],
 }
 
@@ -127,7 +131,12 @@ class WidgetRenderer:
             text = fn(w.show_unit)
         except Exception as exc:
             log.warning("Source %s failed: %s", w.source, exc)
-            text = "—"
+            text = ""
+        # Empty result → don't draw anything. Cleaner than rendering
+        # a placeholder dash; the user sees a clean spot rather than
+        # a dead-looking metric.
+        if not text:
+            return
         self._render_text(draw, w, text)
 
     def _render_text(self, draw: ImageDraw.ImageDraw, w: WidgetSpec, text: str):
