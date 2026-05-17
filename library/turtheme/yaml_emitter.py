@@ -222,6 +222,13 @@ def _widget_to_dict(
                 base["image"] = f"images/{w.image_name}"
         if abs(w.zoom_rate - 1.0) > 1e-6:
             base["scale"] = round(float(w.zoom_rate), 4)
+        # Heuristic: image widgets with scale > 0.3 are almost certainly
+        # editor-preview thumbnails (a full-theme rendering UsbMonitorL stored
+        # for its own UI) — NOT runtime decorations. Hide by default; user
+        # can flip hide:false in YAML if they actually want them.
+        if w.zoom_rate > 0.3:
+            base["hide"] = True
+            base["_note"] = "auto-hidden: image scale > 0.3 looks like editor preview"
         return base
 
     return None
