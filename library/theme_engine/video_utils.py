@@ -40,7 +40,7 @@ def rotate_mp4(
     source_mp4: Path,
     output_mp4: Path,
     degrees: int,
-    crf: int = 16,
+    bitrate: str = "2400k",
     preset: str = "medium",
 ) -> Path:
     """Rotate `source_mp4` by `degrees` (90 / 180 / 270) into `output_mp4`.
@@ -50,10 +50,11 @@ def rotate_mp4(
 
       - profile=baseline, level=3.1 (no B-frames, no advanced features)
       - pix_fmt=yuv420p (8-bit YUV 4:2:0, mandatory for hardware decoders)
-      - no B-frames, no scene cut (-bf 0, no-scenecut=1)
-      - keyframe every 25 frames (= 1 sec at 25fps) so any frame loss
-        recovers within a second
-      - faststart so the parser can read moov atom early
+      - tune=fastdecode (lower-complexity encode, easier to decode in HW)
+      - constant bitrate ≈ original UsbMonitorL videos (2.4 Mbps) so the
+        screen's decoder doesn't get overwhelmed
+      - no B-frames, no scene cut (-bf 0, no-scenecut=1, no-cabac)
+      - keyframe every 25 frames (1 sec at 25fps) for clean loop seeks
 
     Audio is dropped since the Turing doesn't play sound.
     """
@@ -81,10 +82,10 @@ def rotate_mp4(
         str(source_mp4),
         "-vf",
         vf,
-        # Codec + quality
+        # Codec + complexity tuning
         "-c:v", "libx264",
         "-preset", preset,
-        "-crf", str(crf),
+        "-tune", "fastdecode",
         # Embedded-decoder-friendly profile
         "-profile:v", "baseline",
         "-level", "3.1",
@@ -95,11 +96,12 @@ def rotate_mp4(
         "-keyint_min", "25",
         "-sc_threshold", "0",
         "-x264-params", "no-scenecut=1:bframes=0:ref=1:cabac=0",
-        # Cap peak bitrate so the decoder doesn't get spikes
-        "-maxrate", "3500k",
-        "-bufsize", "7000k",
-        # Match common BT.709 metadata (matches what most cameras / display
-        # decoders expect; avoids subtle color shifts)
+        # CBR-ish target close to the original UsbMonitorL bitrate (~2.4 Mbps).
+        # Caps decoder pressure so it doesn't overflow → no judder/blur.
+        "-b:v", bitrate,
+        "-maxrate", bitrate,
+        "-bufsize", f"{int(bitrate.rstrip('k')) * 2}k",
+        # Match common BT.709 metadata
         "-color_primaries", "bt709",
         "-color_trc", "bt709",
         "-colorspace", "bt709",
@@ -109,7 +111,10 @@ def rotate_mp4(
         "-an",
         str(output_mp4),
     ]
-    log.info("ffmpeg rotate %d° → %s (baseline / yuv420p / no-bframes)", degrees, output_mp4.name)
+    log.info(
+        "ffmpeg rotate %d° → %s (baseline / yuv420p / fastdecode @ %s)",
+        degrees, output_mp4.name, bitrate,
+    )
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         # Re-raise with the ffmpeg error
