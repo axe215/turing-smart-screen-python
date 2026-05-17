@@ -46,13 +46,16 @@ class StreamingThread(threading.Thread):
         usb_lock: threading.Lock,
         brightness: int = 32,
         framerate: int = 25,
-        # Feed ~50% faster than the video's CBR so the screen's decoder
-        # buffer can refill during the ~200-250ms gaps when the widget
-        # thread holds the USB lock to push an overlay PNG.
-        target_kbps: int = 3600,
-        # With ~400ms natural gap between chunks at 3600 kbps, a small
-        # 10ms yield is plenty for the OS scheduler to give the widget
-        # thread the lock when it's waiting.
+        # Feed exactly at the video's CBR. We tested 1.5× headroom and
+        # the 9.2"'s decoder choked on it (visible artifacts) — the
+        # firmware seems sized for the original UsbMonitorL bitrate
+        # (~2.4 Mbps), not bursty oversupply. So we match the rotated
+        # MP4's encode rate and accept that overlay pushes briefly
+        # stall the video pipeline (firmware-side, not host-side).
+        target_kbps: int = 2400,
+        # 10ms is enough to let the OS hand the lock to the widget
+        # thread between chunks (pacing already gives a long natural
+        # gap of ~600ms anyway).
         yield_ms: float = 10.0,
     ):
         super().__init__(daemon=True, name="StreamingThread")
