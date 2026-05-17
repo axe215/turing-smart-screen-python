@@ -135,8 +135,24 @@ class WidgetRenderer:
             return
         font = self._load_font(w.font)
         color = (w.font.color if w.font else (255, 255, 255, 255))
-        # Pillow draw.text accepts RGBA only for RGBA images — our canvas is RGBA so ok
-        draw.text((w.x, w.y), text, font=font, fill=color)
+        # Add a 2px black stroke around the text so it stays readable over
+        # any background (light video frames, photographic theme overlays,
+        # etc.). Without it, white text disappears against light pixels.
+        # Per-widget override via raw["stroke_width"] / raw["stroke_color"].
+        stroke_width = int(w.raw.get("stroke_width", 2))
+        stroke_color = tuple(w.raw.get("stroke_color", [0, 0, 0, 255]))
+        try:
+            draw.text(
+                (w.x, w.y),
+                text,
+                font=font,
+                fill=color,
+                stroke_width=stroke_width,
+                stroke_fill=stroke_color,
+            )
+        except TypeError:
+            # Older Pillow without stroke_* kwargs — fall back to plain text
+            draw.text((w.x, w.y), text, font=font, fill=color)
 
     def _render_image(self, canvas: Image.Image, w: WidgetSpec):
         if not w.image:
