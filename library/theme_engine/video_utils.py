@@ -40,13 +40,22 @@ def rotate_mp4(
     source_mp4: Path,
     output_mp4: Path,
     degrees: int,
-    crf: int = 20,
-    preset: str = "fast",
+    crf: int = 18,
+    preset: str = "medium",
 ) -> Path:
     """Rotate `source_mp4` by `degrees` (90 / 180 / 270) into `output_mp4`.
 
-    Returns the output path. Re-encodes H.264 (libx264). Audio is dropped
-    since the Turing screen doesn't play sound.
+    Returns the output path. Re-encodes H.264 (libx264) with settings tuned
+    for the Turing screen's embedded H.264 decoder:
+
+      - profile=baseline, level=3.1 (no B-frames, no advanced features)
+      - pix_fmt=yuv420p (8-bit YUV 4:2:0, mandatory for hardware decoders)
+      - no B-frames, no scene cut (-bf 0, no-scenecut=1)
+      - keyframe every 25 frames (= 1 sec at 25fps) so any frame loss
+        recovers within a second
+      - faststart so the parser can read moov atom early
+
+    Audio is dropped since the Turing doesn't play sound.
     """
     source_mp4 = Path(source_mp4)
     output_mp4 = Path(output_mp4)
@@ -72,16 +81,27 @@ def rotate_mp4(
         str(source_mp4),
         "-vf",
         vf,
-        "-c:v",
-        "libx264",
-        "-preset",
-        preset,
-        "-crf",
-        str(crf),
-        "-an",  # drop audio (screen doesn't play it)
+        # Codec + quality
+        "-c:v", "libx264",
+        "-preset", preset,
+        "-crf", str(crf),
+        # Embedded-decoder-friendly profile
+        "-profile:v", "baseline",
+        "-level", "3.1",
+        "-pix_fmt", "yuv420p",
+        # No B-frames, frequent keyframes, no scene-cut keyframe shifts
+        "-bf", "0",
+        "-g", "25",
+        "-keyint_min", "25",
+        "-sc_threshold", "0",
+        "-x264-params", "no-scenecut=1:bframes=0:ref=1",
+        # Container hint: front-load moov
+        "-movflags", "+faststart",
+        # No audio
+        "-an",
         str(output_mp4),
     ]
-    log.info("ffmpeg rotate %d° → %s", degrees, output_mp4.name)
+    log.info("ffmpeg rotate %d° → %s (baseline / yuv420p / no-bframes)", degrees, output_mp4.name)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         # Re-raise with the ffmpeg error
