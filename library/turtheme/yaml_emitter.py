@@ -222,11 +222,12 @@ def _widget_to_dict(
                 base["image"] = f"images/{w.image_name}"
         if abs(w.zoom_rate - 1.0) > 1e-6:
             base["scale"] = round(float(w.zoom_rate), 4)
-        # NOTE on big image widgets: a large bitmap (scale ~0.64) usually
-        # turns out to be UsbMonitorL's *runtime overlay graphic* — the
-        # tech-circuit decorations, labels, and icons that sit between the
-        # video and the live data widgets. Don't auto-hide it. Users who
-        # want to suppress can add `hide: true` by hand.
+        # Hide all Image widgets by default in our engine: the video provides
+        # the background, and only live metrics overlay on top. UsbMonitorL's
+        # editor-state zoom_rate isn't a reliable runtime intent. If a user
+        # wants a specific icon back, flip `hide: false` in theme.yaml.
+        base["hide"] = True
+        base["_note"] = "auto-hidden: our engine renders metrics over video only; flip hide:false to enable"
         return base
 
     return None
