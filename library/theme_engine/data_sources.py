@@ -36,6 +36,9 @@ log = logging.getLogger(__name__)
 _lhm_cache = None
 _lhm_tried = False
 _lhm_lock = threading.Lock()
+# Cached strings populated once at LHM init so we don't re-query every cycle
+_lhm_cpu_name: str = ""
+_lhm_gpu_name: str = ""
 
 
 def _try_load_lhm():
@@ -45,8 +48,13 @@ def _try_load_lhm():
       - only works on Windows,
       - calls sys.exit(0) if not running as admin (we catch SystemExit),
       - reads LibreHardwareMonitorLib.dll at import time from CWD/external/.
+
+    On success we ALSO seed `lhm.Gpu.gpu_name` from `get_gpu_name()` —
+    without this, upstream's Gpu.stats() returns all-NaN because
+    `get_hw_and_update(HardwareType.Gpu*, name="")` doesn't match by
+    empty name and there's no None-fallback in `get_gpu_to_use()`.
     """
-    global _lhm_cache, _lhm_tried
+    global _lhm_cache, _lhm_tried, _lhm_cpu_name, _lhm_gpu_name
     if _lhm_tried:
         return _lhm_cache
     with _lhm_lock:
@@ -58,8 +66,32 @@ def _try_load_lhm():
             return None
         try:
             import library.sensors.sensors_librehardwaremonitor as lhm  # type: ignore
+            from LibreHardwareMonitor import Hardware  # type: ignore
+
+            # Seed the GPU class so subsequent Gpu.stats() calls find the
+            # GPU. Without this, gpu_name stays "" and stats() returns NaN.
+            try:
+                _lhm_gpu_name = lhm.get_gpu_name() or ""
+                lhm.Gpu.gpu_name = _lhm_gpu_name
+            except Exception as exc:
+                log.warning("LHM: get_gpu_name() failed: %s", exc)
+
+            # Cache CPU model name so _cpu_model() doesn't iterate Hardware
+            # every render cycle (and so the log doesn't spam).
+            try:
+                for hw in lhm.handle.Hardware:
+                    if hw.HardwareType == Hardware.HardwareType.Cpu:
+                        _lhm_cpu_name = str(hw.Name)
+                        break
+            except Exception:
+                pass
+
             _lhm_cache = lhm
-            log.info("LHM sensor backend initialized (Cpu/Gpu/Memory/Net)")
+            log.info(
+                "LHM sensor backend initialized — CPU=%s GPU=%s",
+                _lhm_cpu_name or "?",
+                _lhm_gpu_name or "?",
+            )
             return lhm
         except SystemExit:
             log.warning("LHM requires admin rights — falling back to psutil")
@@ -185,16 +217,10 @@ def _cpu_power():
 
 
 def _cpu_model():
-    """Return the CPU model name (rarely changes — read once)."""
-    lhm = _try_load_lhm()
-    if lhm:
-        try:
-            from LibreHardwareMonitor import Hardware  # type: ignore
-            for hw in lhm.handle.Hardware:
-                if hw.HardwareType == Hardware.HardwareType.Cpu:
-                    return str(hw.Name)
-        except Exception:
-            pass
+    """Return the CPU model name (rarely changes — cached at LHM init)."""
+    _try_load_lhm()  # triggers cache fill on first call
+    if _lhm_cpu_name:
+        return _lhm_cpu_name
     return platform.processor() or "CPU"
 
 
@@ -241,13 +267,11 @@ def _gpu_fan_pct():
 
 
 def _gpu_model():
-    lhm = _try_load_lhm()
-    if lhm:
-        try:
-            return lhm.get_gpu_name() or "GPU"
-        except Exception:
-            pass
-    # psutil-less fallback: try GPUtil
+    """Cached at LHM init — avoids per-cycle log spam from get_gpu_name()."""
+    _try_load_lhm()
+    if _lhm_gpu_name:
+        return _lhm_gpu_name
+    # psutil-less fallback: try GPUtil (also rarely changes)
     try:
         import GPUtil  # type: ignore
         gpus = GPUtil.getGPUs()
