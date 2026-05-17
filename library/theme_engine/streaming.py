@@ -44,7 +44,7 @@ class StreamingThread(threading.Thread):
         dev,
         h264_path: Path,
         usb_lock: threading.Lock,
-        brightness: int = 80,
+        brightness: int = 95,
         framerate: int = 25,
         # Feed exactly at the video's CBR. We tested 1.5× headroom and
         # the 9.2"'s decoder choked on it (visible artifacts) — the

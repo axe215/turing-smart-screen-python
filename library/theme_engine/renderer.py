@@ -128,16 +128,71 @@ class WidgetRenderer:
     def _render_data(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
         fn = self.sources.get(w.source)
         try:
-            text = fn(w.show_unit)
+            result = fn(w.show_unit)
         except Exception as exc:
             log.warning("Source %s failed: %s", w.source, exc)
-            text = ""
-        # Empty result → don't draw anything. Cleaner than rendering
-        # a placeholder dash; the user sees a clean spot rather than
-        # a dead-looking metric.
-        if not text:
+            result = ("", "")
+        # Sources now return (value_str, unit_str). Backwards-compat with
+        # plain strings if someone wires a custom source the old way.
+        if isinstance(result, tuple):
+            value_part, unit_part = result
+        else:
+            value_part, unit_part = (result, "")
+        if not value_part and not unit_part:
             return
-        self._render_text(draw, w, text)
+        # Render the value in widget color, then the unit in inverted
+        # color immediately after — same style as Text widgets so units
+        # like "GB" / "W" / "%" pop visually against the bright numbers.
+        if unit_part:
+            self._render_data_with_unit(draw, w, value_part, unit_part)
+        else:
+            self._render_text(draw, w, value_part)
+
+    def _render_data_with_unit(
+        self,
+        draw: ImageDraw.ImageDraw,
+        w: WidgetSpec,
+        value: str,
+        unit: str,
+    ):
+        """Render `value` in the widget's color and `unit` in inverted color
+        (black with white stroke, like our static Text widgets) immediately
+        after the value."""
+        font = self._load_font(w.font)
+
+        base_color = w.font.color if w.font else (255, 255, 255, 255)
+        value_fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else base_color
+        value_stroke = tuple(w.raw["stroke_color"]) if "stroke_color" in w.raw else (0, 0, 0, 255)
+        unit_fill = (0, 0, 0, 255)
+        unit_stroke = (255, 255, 255, 255)
+        stroke_width = int(w.raw.get("stroke_width", 1))
+
+        # Draw the value first
+        try:
+            draw.text(
+                (w.x, w.y), value, font=font, fill=value_fill,
+                stroke_width=stroke_width, stroke_fill=value_stroke,
+            )
+        except TypeError:
+            draw.text((w.x, w.y), value, font=font, fill=value_fill)
+
+        # Compute where the value ended (text length in current font)
+        try:
+            value_width = draw.textlength(value, font=font)
+        except AttributeError:
+            # very old Pillow: fall back to bbox
+            bbox = draw.textbbox((w.x, w.y), value, font=font)
+            value_width = bbox[2] - bbox[0]
+
+        unit_x = int(w.x + value_width)
+
+        try:
+            draw.text(
+                (unit_x, w.y), unit, font=font, fill=unit_fill,
+                stroke_width=stroke_width, stroke_fill=unit_stroke,
+            )
+        except TypeError:
+            draw.text((unit_x, w.y), unit, font=font, fill=unit_fill)
 
     def _render_text(self, draw: ImageDraw.ImageDraw, w: WidgetSpec, text: str):
         if not text:

@@ -334,29 +334,33 @@ def _fmt_net(rate: float) -> str:
 
 
 def _renderer(value_fn: Callable[[], Optional[float]], unit: str = "", fmt: str = "{:.0f}"):
-    """Build a callable(show_unit) → str. Empty string when no value."""
-    def render(show_unit: bool = False) -> str:
+    """Build a callable(show_unit) → (value_str, unit_str).
+
+    Returning the value and unit separately lets the renderer paint
+    them in different colors (e.g. value=white, unit=black).
+    Returns ("", "") when no value is available.
+    """
+    def render(show_unit: bool = False):
         v = value_fn()
         if v is None or (isinstance(v, float) and math.isnan(v)):
-            return ""
+            return ("", "")
         s = fmt.format(v) if isinstance(v, (int, float)) else str(v)
-        if show_unit and unit:
-            s = f"{s}{unit}"
-        return s
+        unit_s = unit if show_unit and unit else ""
+        return (s, unit_s)
     return render
 
 
 def _str_renderer(value_fn: Callable[[], str]):
-    """For string-typed sources (model names, clock)."""
-    def render(show_unit: bool = False) -> str:
+    """For string-typed sources (model names, clock). No unit, ever."""
+    def render(show_unit: bool = False):
         try:
-            return value_fn() or ""
+            return (value_fn() or "", "")
         except Exception:
-            return ""
+            return ("", "")
     return render
 
 
-DEFAULT_SOURCES: Dict[str, Callable[[bool], str]] = {
+DEFAULT_SOURCES: Dict[str, Callable[[bool], tuple]] = {
     # CPU
     "cpu_percentage": _renderer(_cpu_percentage, unit="%", fmt="{:.0f}"),
     "cpu_temp": _renderer(_cpu_temp, unit="°C", fmt="{:.0f}"),
@@ -386,17 +390,25 @@ DEFAULT_SOURCES: Dict[str, Callable[[bool], str]] = {
 
 @dataclass
 class DataSourceRegistry:
-    """Resolve `source` strings to callable(show_unit) -> str."""
+    """Resolve `source` strings to callable(show_unit) -> (value, unit).
 
-    overrides: Dict[str, Callable[[bool], str]] = field(default_factory=dict)
+    Each callable returns a 2-tuple of strings. The renderer paints
+    `value` in the widget's color and `unit` in a contrasting color
+    so users can visually separate live numbers from their units
+    (e.g. "47.6 GB" → white "47.6" + black " GB").
 
-    def get(self, source: str) -> Callable[[bool], str]:
+    A returned ("", "") means no data — renderer skips the widget.
+    """
+
+    overrides: Dict[str, Callable[[bool], tuple]] = field(default_factory=dict)
+
+    def get(self, source: str) -> Callable[[bool], tuple]:
         if not source:
-            return lambda show_unit=False: ""
+            return lambda show_unit=False: ("", "")
         if source in self.overrides:
             return self.overrides[source]
         if source in DEFAULT_SOURCES:
             return DEFAULT_SOURCES[source]
         # Unknown source — log once, return empty (renderer will skip)
         log.warning("unknown data source: %s (returning empty)", source)
-        return lambda show_unit=False: ""
+        return lambda show_unit=False: ("", "")
