@@ -65,6 +65,15 @@ def main() -> int:
         const=Path("/tmp/theme_preview.png"),
         help="Render one frame, save to this path (default /tmp/theme_preview.png), don't open USB",
     )
+    p.add_argument(
+        "--preview-bg",
+        default="black",
+        help=(
+            "Dry-run only: background to composite under the transparent widget "
+            "layer. 'transparent' (raw alpha PNG), 'black' (default), 'gray', or "
+            "an existing image path (e.g. res/themes/eva.rei/images/Screenshot_*.png)"
+        ),
+    )
     args = p.parse_args()
 
     theme = load_theme(args.theme_yaml)
@@ -79,15 +88,44 @@ def main() -> int:
     sources = DataSourceRegistry()
 
     if args.dry_run is not None:
+        from PIL import Image as _Image
         renderer = WidgetRenderer(theme, sources, screen=args.screen)
         # Prime psutil so first cpu_percent isn't 0
         import psutil
         psutil.cpu_percent(interval=None)
         time.sleep(0.5)
-        img = renderer.render_frame(rotate_180=args.rotate_180)
+        overlay = renderer.render_frame(rotate_180=args.rotate_180)
+
+        # Composite under a background so widgets are visible in the saved PNG
+        bg_spec = args.preview_bg
+        if bg_spec == "transparent":
+            final = overlay
+        else:
+            if bg_spec == "black":
+                bg = _Image.new("RGBA", overlay.size, (0, 0, 0, 255))
+            elif bg_spec == "gray":
+                bg = _Image.new("RGBA", overlay.size, (64, 64, 64, 255))
+            elif Path(bg_spec).exists():
+                # Use the given image — rotate/crop to match
+                src = _Image.open(bg_spec).convert("RGBA")
+                # Match overlay orientation: rotate to portrait if needed
+                if src.width > src.height:
+                    src = src.transpose(_Image.Transpose.ROTATE_270)
+                # Resize to fit overlay
+                if src.size != overlay.size:
+                    src = src.resize(overlay.size, _Image.LANCZOS)
+                bg = src
+            else:
+                print(f"WARN: --preview-bg {bg_spec!r} not understood; using black")
+                bg = _Image.new("RGBA", overlay.size, (0, 0, 0, 255))
+            final = _Image.alpha_composite(bg, overlay)
+
         args.dry_run.parent.mkdir(parents=True, exist_ok=True)
-        img.save(args.dry_run)
-        print(f"\nDry-run: saved one frame to {args.dry_run}  ({img.width}x{img.height} RGBA)")
+        final.save(args.dry_run)
+        print(
+            f"\nDry-run: saved one frame to {args.dry_run}  "
+            f"({final.width}x{final.height} RGBA, bg={bg_spec})"
+        )
         return 0
 
     # Real run — connect to the screen
