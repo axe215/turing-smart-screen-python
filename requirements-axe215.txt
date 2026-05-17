@@ -11,3 +11,8 @@
 # shim in library/turtheme/parser.py before importing nrbf, so no patching
 # of namedlist itself is required.
 namedlist~=1.8
+
+# Bundled, portable ffmpeg binary — used by library/theme_engine/video_utils.py
+# to pre-rotate theme videos (the 9.2" firmware has no usable rotation
+# command, so we re-encode the MP4 once before streaming).
+imageio-ffmpeg~=0.5

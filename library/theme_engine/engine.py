@@ -25,6 +25,7 @@ from .data_sources import DataSourceRegistry
 from .renderer import WidgetRenderer
 from .runtime import ThemeRuntime
 from .streaming import StreamingThread
+from .video_utils import ensure_rotated
 
 log = logging.getLogger(__name__)
 
@@ -37,10 +38,14 @@ class ThemeEngine:
         screen: str = "9.2",
         data_sources: Optional[DataSourceRegistry] = None,
         rotate_180: bool = False,
+        rotate_video: int = 0,
     ):
         self.theme = theme
         self.lcd = lcd
         self.rotate_180 = rotate_180
+        # Degrees to physically rotate the source video before extracting
+        # H.264 (0/90/180/270). Re-encoded copy is cached next to source.
+        self.rotate_video = rotate_video
         self.sources = data_sources or DataSourceRegistry()
         self.renderer = WidgetRenderer(theme, self.sources, screen=screen)
         self.usb_lock = threading.Lock()
@@ -53,6 +58,7 @@ class ThemeEngine:
 
     def _ensure_h264(self) -> Optional[Path]:
         """Extract the theme's MP4 to H.264 once and return that path.
+        If rotate_video is set, the MP4 is pre-rotated (cached) first.
         Returns None if the theme has no video."""
         if self.theme.video is None:
             return None
@@ -60,6 +66,9 @@ class ThemeEngine:
         if mp4_path is None or not mp4_path.exists():
             log.warning("video file %s not found", mp4_path)
             return None
+        # Pre-rotate the MP4 once (re-encoded copy cached next to source)
+        if self.rotate_video:
+            mp4_path = ensure_rotated(mp4_path, self.rotate_video)
         h264 = mp4_path.with_suffix(".h264")
         if not h264.exists():
             log.info("extracting H.264 from %s", mp4_path)

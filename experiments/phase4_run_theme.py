@@ -50,7 +50,18 @@ def main() -> int:
     p.add_argument(
         "--rotate-180",
         action="store_true",
-        help="Rotate widgets 180° (use if your screen is mounted flipped)",
+        help="Rotate widget overlay 180° (use if your screen is mounted flipped)",
+    )
+    p.add_argument(
+        "--rotate-video",
+        type=int,
+        choices=[0, 90, 180, 270],
+        default=0,
+        help=(
+            "Pre-rotate the source MP4 by N degrees (host-side re-encode via ffmpeg). "
+            "Result is cached next to the source so first run takes a few seconds; "
+            "subsequent runs reuse the cache. Requires `pip install imageio-ffmpeg`."
+        ),
     )
     p.add_argument(
         "--screen",
@@ -136,7 +147,13 @@ def main() -> int:
     print(f"  PID=0x{lcd.dev_pid:04x}  native_portrait={lcd.display_width}x{lcd.display_height}")
     lcd.InitializeComm()
 
-    engine = ThemeEngine(theme, lcd, screen=args.screen, rotate_180=args.rotate_180)
+    engine = ThemeEngine(
+        theme,
+        lcd,
+        screen=args.screen,
+        rotate_180=args.rotate_180,
+        rotate_video=args.rotate_video,
+    )
     engine.run(duration=args.duration, widget_period=args.widget_period)
     print("Done.")
     return 0
