@@ -41,9 +41,12 @@ sys.path.insert(0, str(REPO_ROOT))
 from library.lcd.lcd_comm_turing_usb import (  # noqa: E402
     LcdCommTuringUSB,
     upload_file,
+    send_video,
     _play_command,
     _play2_command,
     _play3_command,
+    _open_file_command,
+    _resp_ok,
     send_brightness_command,
     send_refresh_storage_command,
 )
@@ -56,9 +59,23 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("video", help="Path to MP4 file (local filesystem)")
     p.add_argument(
+        "--mode",
+        choices=["upload-play", "stream"],
+        default="upload-play",
+        help=(
+            "upload-play (default): upload MP4 to device FS, then play from there. "
+            "stream: skip upload, stream H.264 chunks live from host via cmd 121."
+        ),
+    )
+    p.add_argument(
+        "--loop-stream",
+        action="store_true",
+        help="When --mode stream, loop the H.264 forever (default: play once)",
+    )
+    p.add_argument(
         "--skip-upload",
         action="store_true",
-        help="Skip upload; file already uploaded to the device",
+        help="upload-play mode: skip upload, file already on device",
     )
     p.add_argument(
         "--play-cmd",
@@ -90,14 +107,18 @@ def main() -> int:
     args = p.parse_args()
 
     video_path = Path(args.video).expanduser().resolve()
-    if not args.skip_upload and not video_path.exists():
+    if not video_path.exists() and not (args.mode == "upload-play" and args.skip_upload):
         print(f"ERROR: video not found: {video_path}", file=sys.stderr)
         return 1
 
-    print(f"== Phase 1: on-device video playback ==")
-    print(f"Video       : {video_path}")
-    print(f"Skip upload : {args.skip_upload}")
-    print(f"Play opcode : {args.play_cmd}")
+    print(f"== Phase 1: video playback probe ==")
+    print(f"Video : {video_path}")
+    print(f"Mode  : {args.mode}")
+    if args.mode == "upload-play":
+        print(f"Skip upload : {args.skip_upload}")
+        print(f"Play opcode : {args.play_cmd}")
+    else:
+        print(f"Loop stream : {args.loop_stream}")
 
     print(f"\n[step 1/4] Connecting to screen...")
     lcd = LcdCommTuringUSB()
@@ -108,19 +129,54 @@ def main() -> int:
     lcd.InitializeComm()
     send_brightness_command(lcd.dev, int(args.brightness / 100 * 102))
 
-    print(f"\n[step 2/4] Inspecting on-device storage (before)...")
+    print(f"\n[step 2] Inspecting on-device storage (before)...")
     try:
         send_refresh_storage_command(lcd.dev)
     except Exception as exc:
         print(f"  WARN: refresh_storage failed: {exc}")
 
+    if args.mode == "stream":
+        # Pure streaming path: host pushes H.264 chunks live via cmd 121.
+        # No on-device storage required. This is the path the screen uses
+        # internally in its native UsbMonitorL for ad-hoc playback.
+        print(
+            f"\n[step 3] Streaming H.264 from host (mode=stream, loop={args.loop_stream})...\n"
+            f"  Ctrl+C to stop (sends CMD_STOP_STREAM)."
+        )
+        try:
+            send_video(lcd.dev, str(video_path), loop=args.loop_stream)
+        except KeyboardInterrupt:
+            print("\nInterrupted by user.")
+        print("\nDone (stream mode).")
+        return 0
+
+    # --- upload-play mode ---
     if not args.skip_upload:
-        print(f"\n[step 3/4] Uploading {video_path.name}...")
+        print(f"\n[step 3] Uploading {video_path.name}...")
+        # Probe the open-file response explicitly so we can see what the firmware actually returns
+        # (upload_file() doesn't check _resp_ok on the open step — only on writes).
+        from library.lcd.lcd_comm_turing_usb import extract_h264_from_mp4
+        h264_path = extract_h264_from_mp4(str(video_path))
+        device_name = (args.device_name or Path(h264_path).name)
+        device_path_probe = f"/tmp/sdcard/mmcblk0p1/video/{device_name}"
+        print(f"  Probing _open_file_command on {device_path_probe} ...")
+        open_resp = _open_file_command(lcd.dev, device_path_probe)
+        if open_resp:
+            print(f"    response[:32] hex: {bytes(open_resp[:32]).hex()}")
+            print(f"    _resp_ok: {_resp_ok(open_resp)}")
+        else:
+            print("    response: None")
+
         t0 = time.monotonic()
         ok = upload_file(lcd.dev, str(video_path))
         dt = time.monotonic() - t0
         if not ok:
             print("ERROR: upload_file returned False", file=sys.stderr)
+            print(
+                "\nDiagnosis hint: if 'Card Total = 0.00 MB' above, the screen has no\n"
+                "writable storage mounted. Check if it needs a microSD card inserted,\n"
+                "or try `--mode stream` (no storage required) to confirm playback works."
+            )
             return 2
         print(f"  upload completed in {dt:.1f}s")
         try:
@@ -128,7 +184,7 @@ def main() -> int:
         except Exception as exc:
             print(f"  WARN: refresh_storage (post-upload) failed: {exc}")
     else:
-        print(f"\n[step 3/4] Skipping upload (--skip-upload)")
+        print(f"\n[step 3] Skipping upload (--skip-upload)")
 
     # Derive on-device path
     if args.device_name:
@@ -138,10 +194,11 @@ def main() -> int:
     device_path = f"/tmp/sdcard/mmcblk0p1/video/{device_name}"
 
     play_fn = PLAY_OPCODES[args.play_cmd]
-    print(f"\n[step 4/4] Firing play opcode {args.play_cmd} on {device_path}...")
+    print(f"\n[step 4] Firing play opcode {args.play_cmd} on {device_path}...")
     resp = play_fn(lcd.dev, device_path)
     if resp:
         print(f"  response (first 32 bytes hex): {bytes(resp[:32]).hex()}")
+        print(f"  _resp_ok: {_resp_ok(resp)}")
     else:
         print(f"  response: None")
 
