@@ -46,8 +46,14 @@ class StreamingThread(threading.Thread):
         usb_lock: threading.Lock,
         brightness: int = 32,
         framerate: int = 25,
-        target_kbps: int = 2400,
-        yield_ms: float = 30.0,
+        # Feed ~50% faster than the video's CBR so the screen's decoder
+        # buffer can refill during the ~200-250ms gaps when the widget
+        # thread holds the USB lock to push an overlay PNG.
+        target_kbps: int = 3600,
+        # With ~400ms natural gap between chunks at 3600 kbps, a small
+        # 10ms yield is plenty for the OS scheduler to give the widget
+        # thread the lock when it's waiting.
+        yield_ms: float = 10.0,
     ):
         super().__init__(daemon=True, name="StreamingThread")
         self.dev = dev
