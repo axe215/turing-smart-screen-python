@@ -130,7 +130,12 @@ def _font_to_dict(fc: Optional[FontConfig]) -> Optional[Dict[str, Any]]:
     return out
 
 
-def _widget_to_dict(w: WidgetDef, idx: int, used_ids: set) -> Optional[Dict[str, Any]]:
+def _widget_to_dict(
+    w: WidgetDef,
+    idx: int,
+    used_ids: set,
+    image_rename_map: Optional[Dict[str, str]] = None,
+) -> Optional[Dict[str, Any]]:
     # Generate a unique id by adding a numeric suffix on collision
     base_id = slug_id(w.display_name, f"widget_{idx}")
     wid = base_id
@@ -207,8 +212,14 @@ def _widget_to_dict(w: WidgetDef, idx: int, used_ids: set) -> Optional[Dict[str,
     if isinstance(w, ImageWidget):
         base["type"] = "image"
         if w.image_name:
-            # The actual file is written by export_theme_dir
-            base["image"] = f"images/{w.image_name}"
+            # Use whatever filename export_theme_dir actually wrote
+            # (extension may differ from the original .turtheme image_name
+            # because we sniff magic bytes — e.g. ".jpg" labelled bytes
+            # may actually be PNG).
+            if image_rename_map and w.image_name in image_rename_map:
+                base["image"] = f"images/{image_rename_map[w.image_name]}"
+            else:
+                base["image"] = f"images/{w.image_name}"
         if abs(w.zoom_rate - 1.0) > 1e-6:
             base["scale"] = round(float(w.zoom_rate), 4)
         return base
@@ -216,11 +227,19 @@ def _widget_to_dict(w: WidgetDef, idx: int, used_ids: set) -> Optional[Dict[str,
     return None
 
 
-def to_yaml_dict(theme: ThemeDef, video_filename: Optional[str]) -> Dict[str, Any]:
+def to_yaml_dict(
+    theme: ThemeDef,
+    video_filename: Optional[str],
+    image_rename_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Build the YAML-ready dict from a ThemeDef.
 
     `video_filename` is the relative path to write into the YAML (e.g.
     "video/Finalrei.mp421103329.mp4"). Pass None if no video.
+
+    `image_rename_map` maps original `image_name` (from .turtheme) to the
+    actual filename written by export_theme_dir (so the YAML points at
+    the file that exists on disk).
     """
     out: Dict[str, Any] = {
         "schema_version": 1,
@@ -247,7 +266,7 @@ def to_yaml_dict(theme: ThemeDef, video_filename: Optional[str]) -> Dict[str, An
     widgets_out: List[Dict[str, Any]] = []
     used_ids: set = set()
     for i, w in enumerate(theme.widgets):
-        d = _widget_to_dict(w, i, used_ids)
+        d = _widget_to_dict(w, i, used_ids, image_rename_map=image_rename_map)
         if d is not None:
             widgets_out.append(d)
     out["widgets"] = widgets_out
@@ -272,14 +291,19 @@ def export_theme_dir(
     theme: ThemeDef,
     out_dir: Path,
     video_src: Optional[Path] = None,
+    fonts_src: Optional[Path] = None,
     write_bitmaps: bool = True,
 ) -> Path:
-    """Write a complete theme directory: theme.yaml + video/ + images/.
+    """Write a complete theme directory: theme.yaml + video/ + images/ + fonts/.
 
     `video_src` is an optional path to the source MP4 — if given, it's
     copied into <out_dir>/video/. If omitted, no video file is written
     but the YAML still references one (using the videoName from the
     .turtheme), which the user can drop in later.
+
+    `fonts_src` is an optional path to a fonts directory — its .ttf/.otf
+    files will be copied into <out_dir>/fonts/ so the renderer can find
+    them by family name.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -300,14 +324,31 @@ def export_theme_dir(
             else:
                 log.warning("video_src %s does not exist; skipped copy", vsrc)
 
+    # ---- fonts ----
+    if fonts_src is not None:
+        fsrc = Path(fonts_src)
+        if fsrc.exists() and fsrc.is_dir():
+            fdst_dir = out_dir / "fonts"
+            fdst_dir.mkdir(exist_ok=True)
+            copied = 0
+            for f in fsrc.iterdir():
+                if f.is_file() and f.suffix.lower() in (".ttf", ".otf", ".ttc"):
+                    dst = fdst_dir / f.name
+                    if not dst.exists():
+                        shutil.copy2(f, dst)
+                        copied += 1
+            log.info("copied %d font files into %s", copied, fdst_dir)
+        else:
+            log.warning("fonts_src %s not a directory; skipped fonts copy", fsrc)
+
     # ---- bitmaps ----
+    image_rename_map: Dict[str, str] = {}
     if write_bitmaps:
         img_dir = out_dir / "images"
-        any_bitmap = False
         for i, w in enumerate(theme.widgets):
             if isinstance(w, ImageWidget) and w.bitmap_png:
-                any_bitmap = True
-                stem = Path(_safe_filename(w.image_name, f"image_{i}", ".png")).stem
+                original_name = w.image_name or f"image_{i}.png"
+                stem = Path(_safe_filename(original_name, f"image_{i}", ".png")).stem
                 # Sniff magic for actual ext
                 bm = w.bitmap_png
                 if bm[:2] == b"\xff\xd8":
@@ -316,17 +357,17 @@ def export_theme_dir(
                     ext = ".png"
                 else:
                     ext = ".bin"
-                if not any_bitmap:
-                    img_dir.mkdir(exist_ok=True)
+                actual_name = f"{stem}{ext}"
                 img_dir.mkdir(exist_ok=True)
-                out_path = img_dir / f"{stem}{ext}"
-                # First widget wins for shared names (computer-hardware.png appears twice).
+                out_path = img_dir / actual_name
                 if not out_path.exists():
                     out_path.write_bytes(bm)
                     log.info("wrote bitmap: %s (%d bytes)", out_path, len(bm))
+                # Remember the rename so YAML points at the real filename
+                image_rename_map[original_name] = actual_name
 
     # ---- yaml ----
-    data = to_yaml_dict(theme, video_filename=video_filename)
+    data = to_yaml_dict(theme, video_filename=video_filename, image_rename_map=image_rename_map)
     yaml_path = out_dir / "theme.yaml"
     with open(yaml_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True, width=120)

@@ -150,6 +150,12 @@ def main() -> int:
         metavar="MP4",
         help="Source MP4 to copy into <OUT_DIR>/video/ (used with --emit-theme)",
     )
+    p.add_argument(
+        "--fonts-src",
+        type=Path,
+        metavar="DIR",
+        help="Source fonts directory to copy into <OUT_DIR>/fonts/ (used with --emit-theme)",
+    )
     args = p.parse_args()
 
     in_path = Path(args.turtheme).expanduser().resolve()
@@ -165,7 +171,7 @@ def main() -> int:
     if args.emit_theme:
         out_dir = args.emit_theme.expanduser().resolve()
         print(f"\nEmitting theme directory to {out_dir} ...")
-        export_theme_dir(theme, out_dir, video_src=args.video_src)
+        export_theme_dir(theme, out_dir, video_src=args.video_src, fonts_src=args.fonts_src)
         print(f"  done. Layout:")
         for p in sorted(out_dir.rglob("*")):
             rel = p.relative_to(out_dir)

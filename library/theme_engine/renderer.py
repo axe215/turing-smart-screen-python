@@ -40,6 +40,16 @@ class WidgetRenderer:
         self.native_w, self.native_h = SCREEN_NATIVE.get(screen, SCREEN_NATIVE["9.2"])
         self.design_w = theme.canvas.width
         self.design_h = theme.canvas.height
+        # Build a {family_name → font_file_path} index by reading every
+        # TTF/OTF in theme/fonts/ once at startup. PIL system-lookup is
+        # OS-dependent and unreliable on Windows without the font being
+        # registered; scanning the theme's bundled fonts is robust.
+        self.font_family_index: Dict[str, Path] = self._build_font_index()
+        log.info(
+            "font index for %s: %d families found",
+            theme.name,
+            len(self.font_family_index),
+        )
 
     # ------------------------------------------------------------------
     # Public
@@ -157,6 +167,33 @@ class WidgetRenderer:
     # Font loading
     # ------------------------------------------------------------------
 
+    def _build_font_index(self) -> Dict[str, Path]:
+        """Scan <theme_dir>/fonts/ once and build a family-name → path map.
+
+        Uses PIL's ImageFont.getname() which reads the TTF/OTF name table
+        for the canonical family name. Robust against arbitrary filenames
+        (e.g. "DOTMATRI.TTF" has family "Dot Matrix").
+        """
+        index: Dict[str, Path] = {}
+        fonts_dir = self.theme.theme_dir / "fonts"
+        if not fonts_dir.exists() or not fonts_dir.is_dir():
+            return index
+        for f in fonts_dir.iterdir():
+            if not f.is_file():
+                continue
+            if f.suffix.lower() not in (".ttf", ".otf", ".ttc"):
+                continue
+            try:
+                # Open at a small size just to read the name table
+                ft = ImageFont.truetype(str(f), 12)
+                family, _style = ft.getname()
+            except Exception as exc:
+                log.debug("could not read font name from %s: %s", f, exc)
+                continue
+            if family and family not in index:
+                index[family] = f
+        return index
+
     def _load_font(self, spec: Optional[FontSpec]) -> ImageFont.ImageFont:
         if spec is None or not spec.family:
             return ImageFont.load_default()
@@ -166,27 +203,57 @@ class WidgetRenderer:
             return cached
 
         font = None
-        # 1) Look inside <theme_dir>/fonts/{family}.{ttf,otf} with various spellings
-        for ext in (".ttf", ".otf", ".TTF", ".OTF"):
-            for variant in (spec.family, spec.family.replace(" ", ""), spec.family.replace(" ", "_")):
-                candidate = self.theme.theme_dir / "fonts" / f"{variant}{ext}"
-                if candidate.exists():
+        # 1) Look up via theme's font index built from name tables
+        path = self.font_family_index.get(spec.family)
+        if path is not None:
+            try:
+                font = ImageFont.truetype(str(path), spec.size)
+            except OSError:
+                pass
+        # 2) Fallback: try family with common synonyms
+        if font is None:
+            for variant in (
+                spec.family,
+                spec.family.replace(" ", ""),
+                spec.family.replace(" ", "_"),
+            ):
+                p = self.font_family_index.get(variant)
+                if p:
                     try:
-                        font = ImageFont.truetype(str(candidate), spec.size)
+                        font = ImageFont.truetype(str(p), spec.size)
                         break
                     except OSError:
                         pass
-            if font is not None:
-                break
-        # 2) Try PIL system lookup by family name
+        # 3) Try filename-based lookup (legacy paths)
+        if font is None:
+            for ext in (".ttf", ".otf", ".TTF", ".OTF"):
+                for variant in (
+                    spec.family,
+                    spec.family.replace(" ", ""),
+                    spec.family.replace(" ", "_"),
+                ):
+                    candidate = self.theme.theme_dir / "fonts" / f"{variant}{ext}"
+                    if candidate.exists():
+                        try:
+                            font = ImageFont.truetype(str(candidate), spec.size)
+                            break
+                        except OSError:
+                            pass
+                if font is not None:
+                    break
+        # 4) Try PIL system lookup by family name (Windows-registered fonts)
         if font is None:
             try:
                 font = ImageFont.truetype(spec.family, spec.size)
             except OSError:
                 pass
-        # 3) Default fallback
+        # 5) Default fallback
         if font is None:
-            log.warning("Font %s not found — using default", spec.family)
+            log.warning(
+                "Font %s not found in %s/fonts/ — using default",
+                spec.family,
+                self.theme.theme_dir,
+            )
             font = ImageFont.load_default()
 
         self.font_cache[key] = font
