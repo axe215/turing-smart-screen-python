@@ -25,6 +25,16 @@ SCREEN_NATIVE = {
     "9.2": (462, 1920),
 }
 
+# When a font family from the theme isn't bundled, try these alternates
+# (in order) before falling back to PIL's default raster font. Visually
+# close substitutes for fonts that UsbMonitorL theme authors typically
+# pull in from their system rather than bundling. Tweak per-theme via
+# YAML font_aliases if you have a closer match.
+FONT_FALLBACKS = {
+    "Digital Dismay": ["Motorblock", "i_fink_u_freeky", "Kamikaze", "Shenttpuro Font"],
+    "LCD-Dismay": ["DS-Digital", "LCD", "Liquid Crystal"],
+}
+
 
 class WidgetRenderer:
     def __init__(
@@ -202,28 +212,29 @@ class WidgetRenderer:
         if cached is not None:
             return cached
 
+        # Build the list of family names to try, in order
+        candidates = [spec.family]
+        candidates += [spec.family.replace(" ", ""), spec.family.replace(" ", "_")]
+        # Yaml-defined per-theme aliases would go here in a future version.
+        # For now use built-in FONT_FALLBACKS for known-missing fonts.
+        candidates += FONT_FALLBACKS.get(spec.family, [])
+
         font = None
-        # 1) Look up via theme's font index built from name tables
-        path = self.font_family_index.get(spec.family)
-        if path is not None:
-            try:
-                font = ImageFont.truetype(str(path), spec.size)
-            except OSError:
-                pass
-        # 2) Fallback: try family with common synonyms
-        if font is None:
-            for variant in (
-                spec.family,
-                spec.family.replace(" ", ""),
-                spec.family.replace(" ", "_"),
-            ):
-                p = self.font_family_index.get(variant)
-                if p:
-                    try:
-                        font = ImageFont.truetype(str(p), spec.size)
-                        break
-                    except OSError:
-                        pass
+        # 1) Try each candidate via theme's font index built from name tables
+        for fam in candidates:
+            path = self.font_family_index.get(fam)
+            if path is not None:
+                try:
+                    font = ImageFont.truetype(str(path), spec.size)
+                    if fam != spec.family:
+                        log.info(
+                            "Font %s not found; substituted %s from theme fonts",
+                            spec.family,
+                            fam,
+                        )
+                    break
+                except OSError:
+                    pass
         # 3) Try filename-based lookup (legacy paths)
         if font is None:
             for ext in (".ttf", ".otf", ".TTF", ".OTF"):
