@@ -16,9 +16,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from io import BytesIO
+
 from library.lcd.lcd_comm_turing_usb import (
     extract_h264_from_mp4,
+    send_image,
+    send_jpeg,
     send_pil_image_auto,
+    MAX_IMAGE_PAYLOAD_DEFAULT,
 )
 
 from .data_sources import DataSourceRegistry
@@ -113,21 +118,40 @@ class ThemeEngine:
         try:
             while time.monotonic() < end_time:
                 cycle = time.monotonic()
+
+                # Render + encode OUTSIDE the USB lock so the streaming
+                # thread keeps feeding the screen with H.264 chunks in
+                # parallel. The lock is held only for the actual USB
+                # write, which is ~30-50ms (vs ~270ms when encoding was
+                # inside the lock — that caused the decoder to underrun
+                # and produced motion judder/blur).
+                t_render = time.monotonic()
                 img = self.renderer.render_frame(rotate_180=self.rotate_180)
-                t0 = time.monotonic()
+                render_ms = (time.monotonic() - t_render) * 1000
+
+                t_encode = time.monotonic()
+                payload, fmt = self._encode_payload(img)
+                encode_ms = (time.monotonic() - t_encode) * 1000
+
+                t_send = time.monotonic()
                 with self.usb_lock:
-                    send_pil_image_auto(self.lcd.dev, img)
-                send_ms = (time.monotonic() - t0) * 1000
-                send_ms_total += send_ms
+                    if fmt == "png":
+                        send_image(self.lcd.dev, payload)
+                    else:
+                        send_jpeg(self.lcd.dev, payload)
+                send_ms = (time.monotonic() - t_send) * 1000
+
                 self.widgets_sent += 1
+                send_ms_total += send_ms
                 self.widget_send_ms_avg = send_ms_total / self.widgets_sent
 
                 if self.widgets_sent <= 3 or self.widgets_sent % 10 == 0:
                     log.info(
-                        "[widget #%d] send=%.0fms avg=%.0fms %s",
+                        "[widget #%d] render=%.0fms enc=%.0fms send=%.0fms (lock-held) %s",
                         self.widgets_sent,
+                        render_ms,
+                        encode_ms,
                         send_ms,
-                        self.widget_send_ms_avg,
                         f"stream_chunks={self.streamer.chunks_streamed}" if self.streamer else "(no video)",
                     )
 
@@ -137,6 +161,26 @@ class ThemeEngine:
             log.info("ThemeEngine: interrupted")
         finally:
             self.stop()
+
+    @staticmethod
+    def _encode_payload(img):
+        """Encode the overlay image to PNG (fast) or JPEG (fallback).
+
+        Returns (bytes, 'png' | 'jpeg'). compress_level=3 is far faster
+        than the default 9 and produces near-identical sizes for the
+        mostly-transparent overlay PNGs we use.
+        """
+        buf = BytesIO()
+        img.save(buf, format="PNG", compress_level=3)
+        png_bytes = buf.getvalue()
+        if len(png_bytes) <= MAX_IMAGE_PAYLOAD_DEFAULT:
+            return png_bytes, "png"
+        # Fall back to JPEG when PNG exceeds the per-frame limit
+        from library.lcd.lcd_comm_turing_usb import _encode_jpeg_under_limit  # local import
+        jpg_bytes = _encode_jpeg_under_limit(
+            img, max_bytes=MAX_IMAGE_PAYLOAD_DEFAULT, quality=90, subsampling=-1
+        )
+        return jpg_bytes, "jpeg"
 
     def stop(self):
         if self.streamer is not None:
