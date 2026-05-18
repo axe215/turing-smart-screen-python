@@ -81,8 +81,14 @@ class ThemeManager:
     # ------------------------------------------------------------------
 
     def list_themes(self) -> List[ThemeInfo]:
-        """Scan themes_dir for subfolders that contain a theme.yaml."""
+        """Scan themes_dir for subfolders that contain a *compatible*
+        theme.yaml. The directory probably also contains many upstream
+        mathoudebine themes (Cyberpunk / AMD / NVIDIA / etc.) — those
+        use a different YAML schema (static_text/STATS/display) and we
+        can't run them. We filter on our own `schema_version: 1` marker
+        (always written by yaml_emitter.py)."""
         out: List[ThemeInfo] = []
+        skipped: List[str] = []
         if not self.themes_dir.exists():
             log.warning("themes_dir %s does not exist", self.themes_dir)
             return out
@@ -94,10 +100,20 @@ class ThemeManager:
                 continue
             try:
                 info = self._load_theme_info(entry, yaml_path)
-                if info is not None:
-                    out.append(info)
             except Exception as exc:
                 log.warning("failed to read %s: %s", yaml_path, exc)
+                skipped.append(entry.name)
+                continue
+            if info is None:
+                skipped.append(entry.name)
+            else:
+                out.append(info)
+        if skipped:
+            log.info(
+                "skipped %d incompatible themes (upstream/legacy schema): %s",
+                len(skipped),
+                ", ".join(skipped[:5]) + ("…" if len(skipped) > 5 else ""),
+            )
         return out
 
     def get_theme(self, dir_name: str) -> Optional[ThemeInfo]:
@@ -109,6 +125,11 @@ class ThemeManager:
     def _load_theme_info(self, entry: Path, yaml_path: Path) -> Optional[ThemeInfo]:
         with open(yaml_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
+        # Filter: only our YAML schema (emitted with schema_version: 1).
+        # Upstream mathoudebine themes use a completely different layout
+        # (static_text / STATS / display blocks) and would not run.
+        if data.get("schema_version") != 1:
+            return None
         canvas = data.get("canvas") or {}
         widgets = data.get("widgets") or []
         video = data.get("video") or {}
