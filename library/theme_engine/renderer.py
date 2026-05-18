@@ -226,30 +226,32 @@ class WidgetRenderer:
         default_stroke_w = 1 if self.force_black_text else 0
         stroke_width = int(w.raw.get("stroke_width", default_stroke_w))
 
-        # Draw value
+        # Draw value. anchor="lt" matches upstream mathoudebine's default
+        # (Pillow without `anchor` uses "la" = baseline of ascender, which
+        # places text a few pixels lower than the theme's authors expect).
         try:
             draw.text(
-                (w.x, w.y), value, font=font, fill=fill,
+                (w.x, w.y), value, font=font, fill=fill, anchor="lt",
                 stroke_width=stroke_width, stroke_fill=stroke,
             )
         except TypeError:
-            draw.text((w.x, w.y), value, font=font, fill=fill)
+            draw.text((w.x, w.y), value, font=font, fill=fill, anchor="lt")
 
         # Measure where the value ends and draw the unit right after it
         try:
             value_width = draw.textlength(value, font=font)
         except AttributeError:
-            bbox = draw.textbbox((w.x, w.y), value, font=font)
+            bbox = draw.textbbox((w.x, w.y), value, font=font, anchor="lt")
             value_width = bbox[2] - bbox[0]
 
         unit_x = int(w.x + value_width)
         try:
             draw.text(
-                (unit_x, w.y), unit, font=font, fill=fill,
+                (unit_x, w.y), unit, font=font, fill=fill, anchor="lt",
                 stroke_width=stroke_width, stroke_fill=stroke,
             )
         except TypeError:
-            draw.text((unit_x, w.y), unit, font=font, fill=fill)
+            draw.text((unit_x, w.y), unit, font=font, fill=fill, anchor="lt")
 
     def _render_text(self, draw: ImageDraw.ImageDraw, w: WidgetSpec, text: str):
         if not text:
@@ -279,18 +281,23 @@ class WidgetRenderer:
         default_stroke_w = 1 if self.force_black_text else 0
         stroke_width = int(w.raw.get("stroke_width", default_stroke_w))
 
+        # anchor="lt" matches upstream mathoudebine's default placement,
+        # where (X, Y) is the top-left of the text bounding box. Pillow's
+        # default ("la") uses the ascender top instead, leaving extra
+        # leading above the glyphs and visually pushing text down.
         try:
             draw.text(
                 (w.x, w.y),
                 text,
                 font=font,
                 fill=fill,
+                anchor="lt",
                 stroke_width=stroke_width,
                 stroke_fill=stroke_color,
             )
         except TypeError:
             # Older Pillow without stroke_* kwargs — fall back to plain text
-            draw.text((w.x, w.y), text, font=font, fill=fill)
+            draw.text((w.x, w.y), text, font=font, fill=fill, anchor="lt")
 
     def _render_image(self, canvas: Image.Image, w: WidgetSpec):
         if not w.image:
@@ -489,21 +496,20 @@ class WidgetRenderer:
             label = (value_part + unit_part) if show_unit else value_part
             if label:
                 font = self._load_font(w.font)
-                # Measure to center the label
-                try:
-                    tw = draw.textlength(label, font=font)
-                except AttributeError:
-                    bb = draw.textbbox((0, 0), label, font=font)
-                    tw = bb[2] - bb[0]
-                try:
-                    bb = draw.textbbox((0, 0), label, font=font)
-                    th = bb[3] - bb[1]
-                except AttributeError:
-                    th = font.size if hasattr(font, "size") else 12
                 fill = w.font.color if (w.font is not None and not self.force_black_text) else (
                     (0, 0, 0, 255) if self.force_black_text else (255, 255, 255, 255)
                 )
-                draw.text((cx - tw / 2, cy - th / 2), label, font=font, fill=fill)
+                try:
+                    draw.text((cx, cy), label, font=font, fill=fill, anchor="mm")
+                except TypeError:
+                    # Older Pillow without anchor support — fall back to manual centering
+                    try:
+                        tw = draw.textlength(label, font=font)
+                    except AttributeError:
+                        bb = draw.textbbox((0, 0), label, font=font)
+                        tw = bb[2] - bb[0]
+                    th = font.size if hasattr(font, "size") else 12
+                    draw.text((cx - tw / 2, cy - th / 2), label, font=font, fill=fill)
 
     def _render_line_graph(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
         """Line plot of rolling samples. History deque keyed by widget id.
