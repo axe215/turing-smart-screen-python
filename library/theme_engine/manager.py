@@ -42,7 +42,8 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from .engine import ThemeEngine
-from .runtime import load_theme
+from .runtime import build_runtime, load_theme
+from .upstream_adapter import upstream_to_axe215_dict
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +72,10 @@ class ThemeInfo:
 
     @property
     def runnable(self) -> bool:
-        return self.schema == "axe215_v1"
+        # Both schemas can now run: native axe215_v1 goes straight into
+        # the engine, upstream themes are adapted on the fly into the
+        # same runtime structure (see upstream_adapter.py).
+        return self.schema in ("axe215_v1", "upstream")
 
     def to_dict(self) -> Dict[str, Any]:
         # Always offer a /preview URL: the endpoint generates the
@@ -353,20 +357,37 @@ class ThemeManager:
             raise ValueError(f"theme '{dir_name}' not found in {self.themes_dir}")
         if not info.runnable:
             raise ValueError(
-                f"theme '{dir_name}' uses the upstream schema (mathoudebine) "
-                "which this engine cannot run. Convert via "
-                "phase3_parse_turtheme.py or use main.py for those."
+                f"theme '{dir_name}' has an unsupported schema ({info.schema})"
             )
 
         if params is not None:
             self.params = params
 
         with self._lock:
-            # Stop any active engine first. ThemeEngine.stop() is idempotent
-            # and joins both threads, so we can safely build a new engine.
             self._stop_locked()
 
-            theme_runtime = load_theme(info.yaml_path)
+            if info.schema == "axe215_v1":
+                theme_runtime = load_theme(info.yaml_path)
+            else:
+                # Upstream mathoudebine theme — adapt to our runtime
+                # in memory. Static-image background, widgets translated
+                # from static_text + STATS hierarchy.
+                with open(info.yaml_path, "r", encoding="utf-8") as f:
+                    upstream_data = yaml.safe_load(f) or {}
+                converted = upstream_to_axe215_dict(
+                    upstream_data,
+                    theme_dir=info.yaml_path.parent,
+                )
+                log.info(
+                    "ThemeManager: adapted upstream %s → %d widgets",
+                    info.dir_name, len(converted.get("widgets", [])),
+                )
+                theme_runtime = build_runtime(
+                    converted,
+                    theme_dir=info.yaml_path.parent,
+                    default_name=info.dir_name,
+                )
+
             engine = ThemeEngine(
                 theme_runtime,
                 self.lcd,
@@ -375,7 +396,7 @@ class ThemeManager:
             engine.start(widget_period=self.params.widget_period)
             self.active_engine = engine
             self.active_theme = info.dir_name
-            log.info("ThemeManager.start: active=%s", info.dir_name)
+            log.info("ThemeManager.start: active=%s schema=%s", info.dir_name, info.schema)
 
     def stop(self) -> None:
         with self._lock:

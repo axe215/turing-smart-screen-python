@@ -54,13 +54,14 @@
 
   <section id="themes">
     <h2>Темы</h2>
-    <p class="hint">Карточка с зелёной обводкой и значком ● ACTIVE — то, что сейчас идёт на экране. Темы с тегом «legacy» — это апстрим mathoudebine, для них нужен <code>main.py</code>, наш движок их не запускает.</p>
+    <p class="hint">Карточка с зелёной обводкой и значком ● ACTIVE — то, что сейчас идёт на экране. Темы с тегом «upstream» — апстрим mathoudebine, конвертируются нашим адаптером на лету (static-image фон + STATS-виджеты в наши data-виджеты).</p>
     <div class="filter-bar" id="filter-bar">
       <button class="filter-btn active" data-filter="all">Все</button>
       <button class="filter-btn" data-filter="video">🎥 Видео</button>
       <button class="filter-btn" data-filter="gif">🌀 GIF</button>
       <button class="filter-btn" data-filter="image">🖼 Картинка</button>
-      <button class="filter-btn" data-filter="native">✅ Запускаемые</button>
+      <button class="filter-btn" data-filter="native">✅ Native</button>
+      <button class="filter-btn" data-filter="upstream">📦 Upstream</button>
     </div>
     <div id="theme-grid">Loading…</div>
   </section>

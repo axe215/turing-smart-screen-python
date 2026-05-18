@@ -154,10 +154,19 @@ def load_theme(yaml_path) -> ThemeRuntime:
         raise FileNotFoundError(yaml_path)
     with open(yaml_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
+    return build_runtime(data, yaml_path.parent, default_name=yaml_path.stem)
 
+
+def build_runtime(data: Dict[str, Any], theme_dir: Path, default_name: str = "") -> ThemeRuntime:
+    """Build a ThemeRuntime from an already-parsed YAML-like dict.
+
+    Used by both load_theme() (reads our axe215_v1 yaml from disk) and
+    the upstream adapter (constructs an equivalent dict in memory from
+    a mathoudebine theme.yaml).
+    """
     schema = int(data.get("schema_version", 1))
     if schema != 1:
-        log.warning("theme.yaml schema_version=%d not 1; tread carefully", schema)
+        log.warning("theme schema_version=%d not 1; tread carefully", schema)
 
     canvas_d = data.get("canvas") or {}
     canvas = CanvasSpec(
@@ -177,18 +186,16 @@ def load_theme(yaml_path) -> ThemeRuntime:
     image = None
     img_data = data.get("image")
     if img_data and not video:
-        # image is the fallback background — only used when no video.
-        # (a theme with both would behave as video.)
         image = ImageSpec(path=str(img_data.get("path", "")))
 
     widgets = [WidgetSpec.from_dict(d) for d in (data.get("widgets") or [])]
 
     return ThemeRuntime(
-        name=str(data.get("name", yaml_path.stem)),
+        name=str(data.get("name", default_name)),
         canvas=canvas,
         video=video,
         image=image,
         widgets=widgets,
-        theme_dir=yaml_path.parent,
+        theme_dir=Path(theme_dir),
         raw=data,
     )

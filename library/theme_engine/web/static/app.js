@@ -109,7 +109,8 @@ async function refreshThemes() {
 
 function passesFilter(t) {
   if (currentFilter === 'all') return true;
-  if (currentFilter === 'native') return t.runnable;
+  if (currentFilter === 'native') return t.schema === 'axe215_v1';
+  if (currentFilter === 'upstream') return t.schema === 'upstream';
   return t.background_type === currentFilter;
 }
 
@@ -132,12 +133,15 @@ function renderThemes() {
     const isActive = t.dir_name === activeDir;
     const activeBadge = isActive ? '<div class="active-badge">ACTIVE</div>' : '';
     const typeBadge = `<span class="type-badge ${t.background_type}">${bgTypeIcon(t.background_type)} ${t.background_type}</span>`;
-    const schemaBadge = t.runnable
+    // Tag upstream themes (mathoudebine) — they run via our adapter,
+    // not as a "native" axe215 theme. Useful for users to spot which
+    // are converted on the fly vs purpose-built for our engine.
+    const schemaBadge = t.schema === 'axe215_v1'
       ? ''
-      : '<span class="type-badge legacy">legacy</span>';
+      : '<span class="type-badge legacy" title="Upstream mathoudebine theme — adapted at runtime">upstream</span>';
     const btn = t.runnable
       ? `<button class="btn btn-primary" data-action="activate">${isActive ? 'Restart' : 'Activate'}</button>`
-      : `<button class="btn" disabled title="Upstream schema — run via main.py">Read-only</button>`;
+      : `<button class="btn" disabled title="Unsupported schema">Read-only</button>`;
     // Per-card preview rotation: applied client-side, persisted to localStorage.
     const rot = previewRotations[t.dir_name] | 0;
     // No inline style up front — applyPreviewRotation() handles dimensions
