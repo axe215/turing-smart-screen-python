@@ -167,6 +167,11 @@ class EngineParams:
     font_scale: float = 1.3
     widget_period: float = 1.0
     screen: str = "9.2"
+    # Override theme font colors with black + white stroke for max
+    # legibility over light video frames. Off by default — themes
+    # designed with specific colors (most upstream themes) deserve
+    # to render in those colors.
+    force_black_text: bool = False
 
     def as_kwargs(self) -> Dict[str, Any]:
         return {
@@ -174,6 +179,7 @@ class EngineParams:
             "rotate_video": self.rotate_video,
             "font_scale": self.font_scale,
             "screen": self.screen,
+            "force_black_text": self.force_black_text,
         }
 
 
@@ -438,6 +444,7 @@ class ThemeManager:
                     "font_scale": self.params.font_scale,
                     "widget_period": self.params.widget_period,
                     "screen": self.params.screen,
+                    "force_black_text": self.params.force_black_text,
                 },
                 "engine": engine_status,
                 "themes_dir": str(self.themes_dir),

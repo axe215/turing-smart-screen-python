@@ -68,6 +68,7 @@ def create_app(manager: ThemeManager) -> Flask:
             font_scale=float(params_in.get("font_scale", cur.font_scale)),
             widget_period=float(params_in.get("widget_period", cur.widget_period)),
             screen=str(params_in.get("screen", cur.screen)),
+            force_black_text=bool(params_in.get("force_black_text", cur.force_black_text)),
         )
         try:
             manager.start(dir_name, params=params)

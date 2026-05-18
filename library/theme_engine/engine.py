@@ -45,6 +45,7 @@ class ThemeEngine:
         rotate_180: bool = False,
         rotate_video: int = 0,
         font_scale: float = 1.0,
+        force_black_text: bool = False,
     ):
         self.theme = theme
         self.lcd = lcd
@@ -71,6 +72,7 @@ class ThemeEngine:
             screen=screen,
             font_scale=font_scale,
             background_image=background_image,
+            force_black_text=force_black_text,
         )
         self.usb_lock = threading.Lock()
         self.streamer: Optional[StreamingThread] = None

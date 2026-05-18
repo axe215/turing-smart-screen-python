@@ -12,6 +12,7 @@ const els = {
   filterBar: $('#filter-bar'),
   statusMemory: $('#status-memory'),
   rotate180: $('#param-rotate-180'),
+  forceBlackText: $('#param-force-black-text'),
   rotateVideo: $('#param-rotate-video'),
   fontScale: $('#param-font-scale'),
   fontScaleVal: $('#param-font-scale-val'),
@@ -74,17 +75,50 @@ function readParams() {
     rotate_video: parseInt(els.rotateVideo.value, 10),
     font_scale: parseFloat(els.fontScale.value),
     widget_period: parseFloat(els.widgetPeriod.value),
+    force_black_text: els.forceBlackText.checked,
   };
 }
 
 function writeParams(p) {
   if (!p) return;
   els.rotate180.checked = !!p.rotate_180;
+  els.forceBlackText.checked = !!p.force_black_text;
   els.rotateVideo.value = String(p.rotate_video ?? 0);
   els.fontScale.value = String(p.font_scale ?? 1.3);
   els.fontScaleVal.textContent = Number(p.font_scale ?? 1.3).toFixed(2);
   els.widgetPeriod.value = String(p.widget_period ?? 1.0);
   els.widgetPeriodVal.textContent = Number(p.widget_period ?? 1.0).toFixed(1);
+}
+
+// Per-theme params persistence — different themes want different
+// rotate/scale/etc. (eva.rei: 180° + 1.3 + force_black; Cyberpunk:
+// 0° + 1.0 + no force_black). Stored in localStorage as
+// {dir_name: {…params}}.
+const THEME_PARAMS_KEY = 'theme_params_v1';
+function loadThemeParams() {
+  try { return JSON.parse(localStorage.getItem(THEME_PARAMS_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveThemeParams(map) {
+  try { localStorage.setItem(THEME_PARAMS_KEY, JSON.stringify(map)); } catch {}
+}
+let themeParams = loadThemeParams();
+
+function defaultsForSchema(schema) {
+  // Sane starting params per theme schema. axe215_v1 (our themes,
+  // typically video) want the user's mount rotation + larger fonts;
+  // upstream themes are pixel-perfect by their author and should
+  // start with no rotation, no font scaling, original colors.
+  if (schema === 'axe215_v1') {
+    return {rotate_180: true, rotate_video: 180, font_scale: 1.3,
+            widget_period: 1.0, force_black_text: true};
+  }
+  return {rotate_180: false, rotate_video: 0, font_scale: 1.0,
+          widget_period: 1.0, force_black_text: false};
+}
+
+function paramsForTheme(theme) {
+  return themeParams[theme.dir_name] || defaultsForSchema(theme.schema);
 }
 
 els.fontScale.addEventListener('input', () => {
@@ -175,15 +209,34 @@ function renderThemes() {
     btn.addEventListener('click', async (e) => {
       const card = e.target.closest('.theme-card');
       const dir = card.dataset.dir;
+      const theme = themesCache.find(t => t.dir_name === dir);
+      const isActive = lastStatus?.active_theme === dir;
       btn.disabled = true;
       const prev = btn.textContent;
       btn.textContent = 'Starting…';
+
+      // Pick params:
+      //   - Restarting the ACTIVE theme → use the current UI values
+      //     (user might be tweaking on the fly).
+      //   - Switching to a different theme → pull saved-for-this-theme
+      //     params, falling back to schema defaults. UI sliders are
+      //     updated to match so the user sees what will be applied.
+      let params;
+      if (isActive) {
+        params = readParams();
+      } else {
+        params = paramsForTheme(theme);
+        writeParams(params);
+      }
+
       try {
         await fetchJSON('/api/start', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({dir_name: dir, params: readParams()}),
+          body: JSON.stringify({dir_name: dir, params}),
         });
+        themeParams[dir] = params;
+        saveThemeParams(themeParams);
         await refreshStatus();
         renderThemes();
       } catch (err) {

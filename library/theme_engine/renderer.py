@@ -60,10 +60,16 @@ class WidgetRenderer:
         screen: str = "9.2",
         font_scale: float = 1.0,
         background_image: Optional[Image.Image] = None,
+        force_black_text: bool = False,
     ):
         self.theme = theme
         self.sources = data_sources
         self.font_scale = max(0.1, float(font_scale))
+        # When True, the renderer overrides each widget's font.color
+        # with BLACK + 1-px WHITE stroke. Designed for video-mode
+        # themes where any light pixel in the underlying video could
+        # swallow the theme's intended (often white) text.
+        self.force_black_text = bool(force_black_text)
         # When set, render_frame composes widgets ONTO this image
         # (canvas-sized RGBA), producing an opaque frame ready to send
         # via cmd 102 without a streaming video underneath.
@@ -194,22 +200,25 @@ class WidgetRenderer:
         value: str,
         unit: str,
     ):
-        """Render value + unit using the unified black/white-stroke style.
-
-        Kept as a separate path even though it now matches _render_text
-        in colors — the two-draw approach lets us position the unit
-        right after the value without manually concatenating (and lets
-        future themes color them differently via YAML overrides).
-        """
+        """Render value + unit using the theme's font color."""
         font = self._load_font(w.font)
 
-        fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else (0, 0, 0, 255)
-        stroke = (
-            tuple(w.raw["stroke_color"])
-            if "stroke_color" in w.raw
-            else (255, 255, 255, 255)
-        )
-        stroke_width = int(w.raw.get("stroke_width", 1))
+        if "fill_color" in w.raw:
+            fill = tuple(w.raw["fill_color"])
+        elif self.force_black_text:
+            fill = (0, 0, 0, 255)
+        elif w.font is not None:
+            fill = w.font.color
+        else:
+            fill = (255, 255, 255, 255)
+        if "stroke_color" in w.raw:
+            stroke = tuple(w.raw["stroke_color"])
+        elif self.force_black_text:
+            stroke = (255, 255, 255, 255)
+        else:
+            stroke = (0, 0, 0, 255)
+        default_stroke_w = 1 if self.force_black_text else 0
+        stroke_width = int(w.raw.get("stroke_width", default_stroke_w))
 
         # Draw value
         try:
@@ -241,19 +250,28 @@ class WidgetRenderer:
             return
         font = self._load_font(w.font)
 
-        # Unified style: all widget text (labels and live values) is
-        # BLACK with a WHITE stroke. Black-on-white reads cleanly over
-        # nearly any video frame, and the consistent treatment makes
-        # the overlay feel like one coherent UI rather than mixed.
-        # Per-widget YAML override still wins (fill_color/stroke_color/
-        # stroke_width).
-        fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else (0, 0, 0, 255)
-        stroke_color = (
-            tuple(w.raw["stroke_color"])
-            if "stroke_color" in w.raw
-            else (255, 255, 255, 255)
-        )
-        stroke_width = int(w.raw.get("stroke_width", 1))
+        # Color resolution order:
+        #   1. YAML per-widget override (fill_color / stroke_color)
+        #   2. force_black_text mode → black fill, white stroke
+        #   3. theme's font.color (default — respects what the theme designer set)
+        if "fill_color" in w.raw:
+            fill = tuple(w.raw["fill_color"])
+        elif self.force_black_text:
+            fill = (0, 0, 0, 255)
+        elif w.font is not None:
+            fill = w.font.color
+        else:
+            fill = (255, 255, 255, 255)
+
+        if "stroke_color" in w.raw:
+            stroke_color = tuple(w.raw["stroke_color"])
+        elif self.force_black_text:
+            stroke_color = (255, 255, 255, 255)
+        else:
+            stroke_color = (0, 0, 0, 255)
+
+        default_stroke_w = 1 if self.force_black_text else 0
+        stroke_width = int(w.raw.get("stroke_width", default_stroke_w))
 
         try:
             draw.text(
