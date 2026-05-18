@@ -72,8 +72,10 @@ function renderThemes() {
       ? `<img src="${t.preview_url}" alt="${t.name}">`
       : (t.has_video ? '<span>🎥 video</span>' : '<span>no preview</span>');
     const videoTag = t.has_video ? '🎥' : '·';
+    const badge = isActive ? '<div class="active-badge">ACTIVE</div>' : '';
     return `
       <div class="theme-card${isActive ? ' active' : ''}" data-dir="${t.dir_name}">
+        ${badge}
         <div class="preview">${preview}</div>
         <div class="name">${escapeHTML(t.name)}</div>
         <div class="info">
@@ -91,6 +93,7 @@ function renderThemes() {
       const card = e.target.closest('.theme-card');
       const dir = card.dataset.dir;
       btn.disabled = true;
+      const prev = btn.textContent;
       btn.textContent = 'Starting…';
       try {
         await fetchJSON('/api/start', {
@@ -99,10 +102,13 @@ function renderThemes() {
           body: JSON.stringify({dir_name: dir, params: readParams()}),
         });
         await refreshStatus();
+        // Re-render cards so the active state moves to this card
+        renderThemes();
       } catch (err) {
         alert('Start failed: ' + err.message);
       } finally {
         btn.disabled = false;
+        btn.textContent = prev;
       }
     });
   });
@@ -115,6 +121,7 @@ function escapeHTML(s) {
 }
 
 async function refreshStatus() {
+  const prevActive = lastStatus?.active_theme;
   try {
     lastStatus = await fetchJSON('/api/status');
   } catch (err) {
@@ -132,21 +139,23 @@ async function refreshStatus() {
       `widgets ${e.widgets_sent || 0} · ` +
       `chunks ${e.stream_chunks || 0} · ` +
       `avg send ${e.widget_send_ms_avg || 0}ms`;
+    els.stopBtn.disabled = false;
   } else {
     els.statusRunning.textContent = 'Stopped';
     els.statusRunning.className = 'badge stopped';
     els.statusTheme.textContent = '—';
     els.statusMeta.textContent = '';
+    els.stopBtn.disabled = true;
   }
   // Sync params display (from server) — first time only
   if (!els.fontScale.dataset.synced) {
     writeParams(lastStatus.params);
     els.fontScale.dataset.synced = '1';
   }
-  // Update active card highlight
-  $$('.theme-card').forEach(c => {
-    c.classList.toggle('active', c.dataset.dir === lastStatus.active_theme);
-  });
+  // If the active theme changed, re-render cards so the badge moves
+  if (prevActive !== lastStatus.active_theme && themesCache.length) {
+    renderThemes();
+  }
 }
 
 function formatUptime(secs) {
@@ -161,10 +170,10 @@ els.stopBtn.addEventListener('click', async () => {
   try {
     await fetchJSON('/api/stop', {method: 'POST'});
     await refreshStatus();
+    renderThemes(); // remove active badge
   } catch (err) {
     alert('Stop failed: ' + err.message);
-  } finally {
-    els.stopBtn.disabled = false;
+    els.stopBtn.disabled = false; // re-enable so user can try again
   }
 });
 
