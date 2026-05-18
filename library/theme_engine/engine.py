@@ -44,6 +44,7 @@ class ThemeEngine:
         data_sources: Optional[DataSourceRegistry] = None,
         rotate_180: bool = False,
         rotate_video: int = 0,
+        font_scale: float = 1.0,
     ):
         self.theme = theme
         self.lcd = lcd
@@ -52,7 +53,7 @@ class ThemeEngine:
         # H.264 (0/90/180/270). Re-encoded copy is cached next to source.
         self.rotate_video = rotate_video
         self.sources = data_sources or DataSourceRegistry()
-        self.renderer = WidgetRenderer(theme, self.sources, screen=screen)
+        self.renderer = WidgetRenderer(theme, self.sources, screen=screen, font_scale=font_scale)
         self.usb_lock = threading.Lock()
         self.streamer: Optional[StreamingThread] = None
         # Counters surfaced for the CLI to log

@@ -64,6 +64,15 @@ def main() -> int:
         ),
     )
     p.add_argument(
+        "--font-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Multiply every widget's font size by this factor. Default 1.0. "
+            "Use 1.1-1.3 to make small metrics easier to read on the 9.2\"."
+        ),
+    )
+    p.add_argument(
         "--screen",
         choices=["8.8", "9.2"],
         default="9.2",
@@ -100,7 +109,7 @@ def main() -> int:
 
     if args.dry_run is not None:
         from PIL import Image as _Image
-        renderer = WidgetRenderer(theme, sources, screen=args.screen)
+        renderer = WidgetRenderer(theme, sources, screen=args.screen, font_scale=args.font_scale)
         # Prime psutil so first cpu_percent isn't 0
         import psutil
         psutil.cpu_percent(interval=None)
@@ -153,6 +162,7 @@ def main() -> int:
         screen=args.screen,
         rotate_180=args.rotate_180,
         rotate_video=args.rotate_video,
+        font_scale=args.font_scale,
     )
     engine.run(duration=args.duration, widget_period=args.widget_period)
     print("Done.")

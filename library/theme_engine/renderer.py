@@ -46,9 +46,11 @@ class WidgetRenderer:
         theme: ThemeRuntime,
         data_sources: DataSourceRegistry,
         screen: str = "9.2",
+        font_scale: float = 1.0,
     ):
         self.theme = theme
         self.sources = data_sources
+        self.font_scale = max(0.1, float(font_scale))
         self.font_cache: Dict[Tuple[str, int, bool], ImageFont.ImageFont] = {}
         self.image_cache: Dict[Path, Image.Image] = {}
         self.native_w, self.native_h = SCREEN_NATIVE.get(screen, SCREEN_NATIVE["9.2"])
@@ -155,69 +157,65 @@ class WidgetRenderer:
         value: str,
         unit: str,
     ):
-        """Render `value` in the widget's color and `unit` in inverted color
-        (black with white stroke, like our static Text widgets) immediately
-        after the value."""
+        """Render value + unit using the unified black/white-stroke style.
+
+        Kept as a separate path even though it now matches _render_text
+        in colors — the two-draw approach lets us position the unit
+        right after the value without manually concatenating (and lets
+        future themes color them differently via YAML overrides).
+        """
         font = self._load_font(w.font)
 
-        base_color = w.font.color if w.font else (255, 255, 255, 255)
-        value_fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else base_color
-        value_stroke = tuple(w.raw["stroke_color"]) if "stroke_color" in w.raw else (0, 0, 0, 255)
-        unit_fill = (0, 0, 0, 255)
-        unit_stroke = (255, 255, 255, 255)
+        fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else (0, 0, 0, 255)
+        stroke = (
+            tuple(w.raw["stroke_color"])
+            if "stroke_color" in w.raw
+            else (255, 255, 255, 255)
+        )
         stroke_width = int(w.raw.get("stroke_width", 1))
 
-        # Draw the value first
+        # Draw value
         try:
             draw.text(
-                (w.x, w.y), value, font=font, fill=value_fill,
-                stroke_width=stroke_width, stroke_fill=value_stroke,
+                (w.x, w.y), value, font=font, fill=fill,
+                stroke_width=stroke_width, stroke_fill=stroke,
             )
         except TypeError:
-            draw.text((w.x, w.y), value, font=font, fill=value_fill)
+            draw.text((w.x, w.y), value, font=font, fill=fill)
 
-        # Compute where the value ended (text length in current font)
+        # Measure where the value ends and draw the unit right after it
         try:
             value_width = draw.textlength(value, font=font)
         except AttributeError:
-            # very old Pillow: fall back to bbox
             bbox = draw.textbbox((w.x, w.y), value, font=font)
             value_width = bbox[2] - bbox[0]
 
         unit_x = int(w.x + value_width)
-
         try:
             draw.text(
-                (unit_x, w.y), unit, font=font, fill=unit_fill,
-                stroke_width=stroke_width, stroke_fill=unit_stroke,
+                (unit_x, w.y), unit, font=font, fill=fill,
+                stroke_width=stroke_width, stroke_fill=stroke,
             )
         except TypeError:
-            draw.text((unit_x, w.y), unit, font=font, fill=unit_fill)
+            draw.text((unit_x, w.y), unit, font=font, fill=fill)
 
     def _render_text(self, draw: ImageDraw.ImageDraw, w: WidgetSpec, text: str):
         if not text:
             return
         font = self._load_font(w.font)
 
-        # Default colors depend on widget type:
-        #   - Text widgets (static labels: UPLOAD, USED, %) → BLACK fill
-        #     + WHITE stroke. Subdued look, de-emphasized vs metrics, and
-        #     reads cleanly over both dark and light video frames.
-        #   - Data/chart widgets (live values: CPU temp, GPU%, etc.) →
-        #     WHITE fill from theme + BLACK stroke. The live numbers
-        #     "pop" against everything else.
-        # Per-widget YAML overrides (fill_color / stroke_color /
-        # stroke_width) still win.
-        base_color = w.font.color if w.font else (255, 255, 255, 255)
-        if w.type == "text":
-            default_fill = (0, 0, 0, 255)
-            default_stroke = (255, 255, 255, 255)
-        else:
-            default_fill = base_color
-            default_stroke = (0, 0, 0, 255)
-
-        fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else default_fill
-        stroke_color = tuple(w.raw["stroke_color"]) if "stroke_color" in w.raw else default_stroke
+        # Unified style: all widget text (labels and live values) is
+        # BLACK with a WHITE stroke. Black-on-white reads cleanly over
+        # nearly any video frame, and the consistent treatment makes
+        # the overlay feel like one coherent UI rather than mixed.
+        # Per-widget YAML override still wins (fill_color/stroke_color/
+        # stroke_width).
+        fill = tuple(w.raw["fill_color"]) if "fill_color" in w.raw else (0, 0, 0, 255)
+        stroke_color = (
+            tuple(w.raw["stroke_color"])
+            if "stroke_color" in w.raw
+            else (255, 255, 255, 255)
+        )
         stroke_width = int(w.raw.get("stroke_width", 1))
 
         try:
@@ -302,7 +300,10 @@ class WidgetRenderer:
     def _load_font(self, spec: Optional[FontSpec]) -> ImageFont.ImageFont:
         if spec is None or not spec.family:
             return ImageFont.load_default()
-        key = (spec.family, spec.size, spec.bold)
+        # Apply global font-size scaling. Minimum 6px so we never collapse
+        # a small label to a degenerate size.
+        scaled_size = max(6, int(round(spec.size * self.font_scale)))
+        key = (spec.family, scaled_size, spec.bold)
         cached = self.font_cache.get(key)
         if cached is not None:
             return cached
@@ -320,7 +321,7 @@ class WidgetRenderer:
             path = self.font_family_index.get(fam)
             if path is not None:
                 try:
-                    font = ImageFont.truetype(str(path), spec.size)
+                    font = ImageFont.truetype(str(path), scaled_size)
                     if fam != spec.family:
                         log.info(
                             "Font %s not found; substituted %s from theme fonts",
@@ -341,7 +342,7 @@ class WidgetRenderer:
                     candidate = self.theme.theme_dir / "fonts" / f"{variant}{ext}"
                     if candidate.exists():
                         try:
-                            font = ImageFont.truetype(str(candidate), spec.size)
+                            font = ImageFont.truetype(str(candidate), scaled_size)
                             break
                         except OSError:
                             pass
@@ -350,7 +351,7 @@ class WidgetRenderer:
         # 4) Try PIL system lookup by family name (Windows-registered fonts)
         if font is None:
             try:
-                font = ImageFont.truetype(spec.family, spec.size)
+                font = ImageFont.truetype(spec.family, scaled_size)
             except OSError:
                 pass
         # 5) Default fallback
