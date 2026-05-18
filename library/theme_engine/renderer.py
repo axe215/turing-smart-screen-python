@@ -11,6 +11,9 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+from collections import deque
+from typing import Deque
+
 from PIL import Image, ImageDraw, ImageFont
 
 from .data_sources import DataSourceRegistry
@@ -75,6 +78,9 @@ class WidgetRenderer:
             theme.name,
             len(self.font_family_index),
         )
+        # Per-widget rolling history for Chart widgets. Keyed by widget.id,
+        # size is widget-specific (computed from width / column_width).
+        self.chart_history: Dict[str, Deque[float]] = {}
 
     # ------------------------------------------------------------------
     # Public
@@ -132,7 +138,7 @@ class WidgetRenderer:
         elif w.type == "image":
             self._render_image(canvas, w)
         elif w.type == "chart":
-            self._render_chart_stub(draw, w)
+            self._render_chart(draw, w)
         else:
             log.debug("Skipping widget %s (unknown type %s)", w.id, w.type)
 
@@ -262,18 +268,68 @@ class WidgetRenderer:
             img = img.resize((new_w, new_h), Image.LANCZOS)
         canvas.alpha_composite(img, dest=(w.x, w.y))
 
-    def _render_chart_stub(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
-        """Placeholder rectangle for chart widgets — proper chart will land in Phase 4b."""
+    def _render_chart(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
+        """Column-style chart with rolling history.
+
+        Layout (right-to-left, newest sample on the right):
+          - canvas rectangle filled with `fill_color` (semi-transparent
+            tint so the video shows through)
+          - vertical bars colored `line_color`, height proportional to
+            sample / max_value
+          - 1px border around the chart in `border_color`
+
+        History size auto-derived from width / column_width. column_width
+        defaults to 5 (matches UsbMonitorL eva.rei chart definition).
+        """
         if w.width <= 0 or w.height <= 0:
             return
-        outline = w.border_color or (255, 255, 255, 255)
-        fill = w.fill_color or (0, 0, 0, 40)
-        draw.rectangle(
-            [w.x, w.y, w.x + w.width, w.y + w.height],
-            outline=outline,
-            fill=fill,
-            width=w.border_width,
-        )
+
+        column_width = max(1, int(w.raw.get("column_width", 5)))
+        max_bars = max(1, w.width // column_width)
+        # Track history per widget id; trim on resize when YAML changes
+        hist = self.chart_history.get(w.id)
+        if hist is None or hist.maxlen != max_bars:
+            hist = deque(maxlen=max_bars)
+            self.chart_history[w.id] = hist
+
+        # Pull current numeric value; missing → 0 so the chart still scrolls
+        val = self.sources.get_numeric(w.source)
+        hist.append(val if val is not None else 0.0)
+
+        # Colors (with sensible defaults that match the .turtheme style)
+        border_c = tuple(w.border_color) if w.border_color else (255, 255, 255, 255)
+        bg_c = tuple(w.fill_color) if w.fill_color else (0, 0, 0, 40)
+        bar_c = tuple(w.line_color) if w.line_color else (255, 255, 255, 255)
+
+        x0, y0 = w.x, w.y
+        x1, y1 = w.x + w.width, w.y + w.height
+
+        # Background panel (semi-transparent so video shows through)
+        draw.rectangle([x0, y0, x1, y1], fill=bg_c)
+
+        # Bars: rightmost is newest. Walk history in reverse to place from right edge.
+        max_value = max(1e-6, float(w.max_value))
+        for i, sample in enumerate(reversed(hist)):
+            bar_x = x1 - (i + 1) * column_width
+            if bar_x < x0:
+                break  # ran out of room (shouldn't happen given maxlen=max_bars)
+            scaled = max(0.0, min(float(sample) / max_value, 1.0))
+            bar_h = int(scaled * w.height)
+            if bar_h <= 0:
+                continue
+            bar_top = y1 - bar_h
+            draw.rectangle(
+                [bar_x, bar_top, bar_x + column_width - 1, y1 - 1],
+                fill=bar_c,
+            )
+
+        # Border on top so bars don't bleed past the frame
+        if w.border_width > 0:
+            draw.rectangle(
+                [x0, y0, x1, y1],
+                outline=border_c,
+                width=int(w.border_width),
+            )
 
     # ------------------------------------------------------------------
     # Font loading

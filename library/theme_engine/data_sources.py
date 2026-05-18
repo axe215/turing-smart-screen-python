@@ -360,6 +360,37 @@ def _str_renderer(value_fn: Callable[[], str]):
     return render
 
 
+# ---------------------------------------------------------------------------
+# Numeric value sources — for chart widgets (raw floats, no formatting)
+# ---------------------------------------------------------------------------
+
+
+def _net_rate_mbps(direction: str) -> float:
+    """Convert bytes/sec to megabits/sec — natural unit for chart Y-axis."""
+    return _net_rate(direction) * 8.0 / 1_000_000.0
+
+
+# Each entry returns a raw float (Mbps, %, °C, MHz, ...) — units are at
+# the chart's discretion via theme.yaml max_value.
+NUMERIC_SOURCES: Dict[str, Callable[[], Optional[float]]] = {
+    "cpu_percentage": _cpu_percentage,
+    "cpu_temp": _cpu_temp,
+    "cpu_freq": _cpu_freq_mhz,
+    "cpu_fan_speed": _cpu_fan_pct,
+    "cpu_power": _cpu_power,
+    "gpu_percentage": _gpu_load,
+    "gpu_temp": _gpu_temp,
+    "gpu_power": _gpu_power,
+    "gpu_fan_speed": _gpu_fan_pct,
+    "fps": _gpu_fps,
+    "ram_percentage": _ram_percent,
+    "ram_total": _ram_total_gb,
+    "ram_used_gb": _ram_used_gb,
+    "net_upload": lambda: _net_rate_mbps("up"),
+    "net_download": lambda: _net_rate_mbps("down"),
+}
+
+
 DEFAULT_SOURCES: Dict[str, Callable[[bool], tuple]] = {
     # CPU
     "cpu_percentage": _renderer(_cpu_percentage, unit="%", fmt="{:.0f}"),
@@ -412,3 +443,16 @@ class DataSourceRegistry:
         # Unknown source — log once, return empty (renderer will skip)
         log.warning("unknown data source: %s (returning empty)", source)
         return lambda show_unit=False: ("", "")
+
+    def get_numeric(self, source: str) -> Optional[float]:
+        """Return the current raw numeric value for a source (used by charts).
+        Returns None when no value is available or the source isn't numeric."""
+        if not source or source not in NUMERIC_SOURCES:
+            return None
+        try:
+            v = NUMERIC_SOURCES[source]()
+        except Exception:
+            return None
+        if v is None or (isinstance(v, float) and math.isnan(v)):
+            return None
+        return float(v)
