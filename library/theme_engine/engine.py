@@ -1,28 +1,28 @@
 """ThemeEngine — orchestrator that runs a ThemeRuntime on the screen.
 
-Two threads (lifted from Phase 2b proven architecture):
-  - StreamingThread  loops H.264 to the screen, never stops until stop()
-  - main thread      every `widget_period`s, render widgets + push as PNG
+Lifecycle (Phase 5a):
+  - start(): non-blocking. Launches StreamingThread + a daemon widget
+    thread, returns immediately. is_running() becomes True.
+  - stop(): graceful shutdown. Joins both threads, clears the screen.
+  - run(): legacy blocking wrapper for CLI use (calls start, sleeps
+    until duration / Ctrl+C, then stop).
 
 A threading.Lock around every write_to_device() serializes USB.
 """
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
 import threading
 import time
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-from io import BytesIO
-
 from library.lcd.lcd_comm_turing_usb import (
+    clear_image,
     extract_h264_from_mp4,
     send_image,
     send_jpeg,
-    send_pil_image_auto,
     MAX_IMAGE_PAYLOAD_DEFAULT,
 )
 
@@ -56,10 +56,17 @@ class ThemeEngine:
         self.renderer = WidgetRenderer(theme, self.sources, screen=screen, font_scale=font_scale)
         self.usb_lock = threading.Lock()
         self.streamer: Optional[StreamingThread] = None
-        # Counters surfaced for the CLI to log
+        self.widget_period: float = 1.0
+        self._widget_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._running = False
+        # Counters surfaced for the UI / CLI
         self.widgets_sent = 0
         self.widget_send_ms_avg = 0.0
+        self.started_at: Optional[float] = None
 
+    # ------------------------------------------------------------------
+    # H.264 prep
     # ------------------------------------------------------------------
 
     def _ensure_h264(self) -> Optional[Path]:
@@ -72,7 +79,6 @@ class ThemeEngine:
         if mp4_path is None or not mp4_path.exists():
             log.warning("video file %s not found", mp4_path)
             return None
-        # Pre-rotate the MP4 once (re-encoded copy cached next to source)
         if self.rotate_video:
             mp4_path = ensure_rotated(mp4_path, self.rotate_video)
         h264 = mp4_path.with_suffix(".h264")
@@ -82,25 +88,30 @@ class ThemeEngine:
         return h264
 
     # ------------------------------------------------------------------
+    # Public lifecycle API
+    # ------------------------------------------------------------------
 
-    def run(
-        self,
-        duration: Optional[float] = None,
-        widget_period: float = 1.0,
-        stream_warmup: float = 2.0,
-    ) -> None:
-        """Run until `duration` seconds pass or Ctrl+C.
+    def is_running(self) -> bool:
+        return self._running
 
-        If duration is None, run forever (until KeyboardInterrupt).
-        """
+    def start(self, widget_period: float = 1.0, stream_warmup: float = 2.0) -> None:
+        """Non-blocking start. Returns once threads are live and the
+        stream has had `stream_warmup` seconds to settle."""
+        if self._running:
+            raise RuntimeError("ThemeEngine already running; stop() first")
+
         log.info(
-            "ThemeEngine: theme=%s canvas=%dx%d widgets=%d rotate_180=%s",
+            "ThemeEngine.start: theme=%s canvas=%dx%d widgets=%d rotate_180=%s",
             self.theme.name,
             self.theme.canvas.width,
             self.theme.canvas.height,
             len(self.theme.widgets),
             self.rotate_180,
         )
+        self.widget_period = max(0.05, float(widget_period))
+        self.widgets_sent = 0
+        self.widget_send_ms_avg = 0.0
+        self._stop_event.clear()
 
         h264_path = self._ensure_h264()
         if h264_path is not None:
@@ -114,18 +125,52 @@ class ThemeEngine:
             log.info("ThemeEngine: streaming started; warmup %.1fs", stream_warmup)
             time.sleep(stream_warmup)
 
-        end_time = time.monotonic() + duration if duration is not None else float("inf")
-        send_ms_total = 0.0
-        try:
-            while time.monotonic() < end_time:
-                cycle = time.monotonic()
+        self._widget_thread = threading.Thread(
+            target=self._widget_loop, daemon=True, name="WidgetThread"
+        )
+        self._widget_thread.start()
+        self.started_at = time.monotonic()
+        self._running = True
 
-                # Render + encode OUTSIDE the USB lock so the streaming
-                # thread keeps feeding the screen with H.264 chunks in
-                # parallel. The lock is held only for the actual USB
-                # write, which is ~30-50ms (vs ~270ms when encoding was
-                # inside the lock — that caused the decoder to underrun
-                # and produced motion judder/blur).
+    def stop(self) -> None:
+        """Graceful shutdown. Idempotent: safe to call when not running."""
+        if not self._running and self.streamer is None and self._widget_thread is None:
+            return
+        log.info("ThemeEngine.stop")
+        self._stop_event.set()
+
+        if self._widget_thread is not None:
+            self._widget_thread.join(timeout=5.0)
+            if self._widget_thread.is_alive():
+                log.warning("WidgetThread did not exit cleanly")
+            self._widget_thread = None
+
+        if self.streamer is not None:
+            self.streamer.stop()
+            self.streamer.join(timeout=5.0)
+            if self.streamer.is_alive():
+                log.warning("StreamingThread did not exit cleanly")
+            self.streamer = None
+
+        # Clear the panel so the next theme starts from a clean slate.
+        # Don't crash if the screen has gone away in the meantime.
+        try:
+            with self.usb_lock:
+                clear_image(self.lcd.dev)
+        except Exception as exc:
+            log.debug("clear_image on stop failed (ignored): %s", exc)
+
+        self._running = False
+
+    # ------------------------------------------------------------------
+    # Widget render loop (runs in WidgetThread)
+    # ------------------------------------------------------------------
+
+    def _widget_loop(self) -> None:
+        send_ms_total = 0.0
+        while not self._stop_event.is_set():
+            cycle_start = time.monotonic()
+            try:
                 t_render = time.monotonic()
                 img = self.renderer.render_frame(rotate_180=self.rotate_180)
                 render_ms = (time.monotonic() - t_render) * 1000
@@ -155,37 +200,76 @@ class ThemeEngine:
                         send_ms,
                         f"stream_chunks={self.streamer.chunks_streamed}" if self.streamer else "(no video)",
                     )
+            except Exception as exc:
+                log.warning("widget render failed: %s", exc)
 
-                elapsed = time.monotonic() - cycle
-                time.sleep(max(0.0, widget_period - elapsed))
-        except KeyboardInterrupt:
-            log.info("ThemeEngine: interrupted")
-        finally:
-            self.stop()
+            elapsed = time.monotonic() - cycle_start
+            wait = self.widget_period - elapsed
+            if wait > 0:
+                # event.wait() so stop() takes effect immediately rather
+                # than after a full widget cycle.
+                if self._stop_event.wait(wait):
+                    break
+
+    # ------------------------------------------------------------------
+    # PNG/JPEG encoding helper (unchanged from prior impl)
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _encode_payload(img):
-        """Encode the overlay image to PNG (fast) or JPEG (fallback).
-
-        Returns (bytes, 'png' | 'jpeg'). compress_level=3 is far faster
-        than the default 9 and produces near-identical sizes for the
-        mostly-transparent overlay PNGs we use.
-        """
+        """Encode the overlay image to PNG (fast) or JPEG (fallback)."""
         buf = BytesIO()
         img.save(buf, format="PNG", compress_level=3)
         png_bytes = buf.getvalue()
         if len(png_bytes) <= MAX_IMAGE_PAYLOAD_DEFAULT:
             return png_bytes, "png"
-        # Fall back to JPEG when PNG exceeds the per-frame limit
-        from library.lcd.lcd_comm_turing_usb import _encode_jpeg_under_limit  # local import
+        from library.lcd.lcd_comm_turing_usb import _encode_jpeg_under_limit  # local
         jpg_bytes = _encode_jpeg_under_limit(
             img, max_bytes=MAX_IMAGE_PAYLOAD_DEFAULT, quality=90, subsampling=-1
         )
         return jpg_bytes, "jpeg"
 
-    def stop(self):
-        if self.streamer is not None:
-            self.streamer.stop()
-            self.streamer.join(timeout=5.0)
-            if self.streamer.is_alive():
-                log.warning("StreamingThread did not exit cleanly")
+    # ------------------------------------------------------------------
+    # Status snapshot (for UI status panels)
+    # ------------------------------------------------------------------
+
+    def status(self) -> dict:
+        return {
+            "running": self._running,
+            "theme": self.theme.name,
+            "uptime_sec": (time.monotonic() - self.started_at) if self.started_at else 0.0,
+            "widgets_sent": self.widgets_sent,
+            "widget_send_ms_avg": round(self.widget_send_ms_avg, 1),
+            "stream_chunks": self.streamer.chunks_streamed if self.streamer else 0,
+            "stream_errors": self.streamer.usb_errors if self.streamer else 0,
+            "rotate_180": self.rotate_180,
+            "rotate_video": self.rotate_video,
+            "font_scale": self.renderer.font_scale,
+            "widget_period": self.widget_period,
+        }
+
+    # ------------------------------------------------------------------
+    # Blocking convenience entrypoint (legacy CLI compatibility)
+    # ------------------------------------------------------------------
+
+    def run(
+        self,
+        duration: Optional[float] = None,
+        widget_period: float = 1.0,
+        stream_warmup: float = 2.0,
+    ) -> None:
+        """Block until `duration` seconds pass or Ctrl+C, then stop()."""
+        self.start(widget_period=widget_period, stream_warmup=stream_warmup)
+        try:
+            if duration is not None:
+                # Sleep in small slices so Ctrl+C is responsive
+                end = time.monotonic() + duration
+                while time.monotonic() < end and self._running:
+                    time.sleep(0.2)
+            else:
+                while self._running:
+                    time.sleep(0.5)
+        except KeyboardInterrupt:
+            log.info("ThemeEngine: interrupted")
+        finally:
+            self.stop()
