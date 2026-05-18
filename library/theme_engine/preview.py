@@ -36,13 +36,9 @@ def _cache_path(theme_dir: Path) -> Path:
 def _video_first_frame(src: Path, dst: Path, canvas=None) -> bool:
     """Extract the first frame of a video file to `dst` via ffmpeg.
 
-    If `canvas=(w,h)` is given and the resulting frame's orientation
-    doesn't match (e.g. source is portrait 480x1920 but the theme's
-    canvas is landscape 1920x480 because the screen is mounted rotated),
-    we rotate the frame to match the theme's design orientation so the
-    dashboard preview reads "as designed".
-
-    Returns True on success.
+    The source MP4 is already in the orientation the original theme
+    author intended for the preview — we save the frame as-is. The
+    `canvas` arg is accepted for compatibility but unused.
     """
     try:
         from .video_utils import get_ffmpeg_path
@@ -72,39 +68,7 @@ def _video_first_frame(src: Path, dst: Path, canvas=None) -> bool:
             src.name, proc.returncode, proc.stderr[-300:]
         )
         return False
-    if dst.exists() and canvas is not None:
-        _match_canvas_orientation(dst, canvas)
     return dst.exists()
-
-
-def _match_canvas_orientation(img_path: Path, canvas) -> None:
-    """If the saved preview's aspect ratio doesn't match the theme canvas
-    (e.g. screen-native portrait source for a landscape design), rotate
-    so the preview reads as the theme is meant to look.
-
-    Source MP4s (eva.rei's Finalrei.mp4 in particular) are encoded in the
-    screen's native portrait so the firmware can play them without any
-    extra transform. The theme's logical canvas, however, is landscape —
-    that's how the user actually sees it after the panel rotation. We
-    pick +90° (CCW) so the original author's "top" of the portrait
-    becomes the LEFT of the landscape (head-up reading order).
-    """
-    canvas_w, canvas_h = canvas
-    if not canvas_w or not canvas_h:
-        return
-    try:
-        from PIL import Image
-        with Image.open(img_path) as img:
-            iw, ih = img.size
-            canvas_landscape = canvas_w >= canvas_h
-            img_landscape = iw >= ih
-            if canvas_landscape == img_landscape:
-                return
-            # 90° CCW — see docstring for direction rationale
-            rotated = img.rotate(90, expand=True)
-        rotated.save(img_path)
-    except Exception as exc:
-        log.debug("orientation match failed for %s: %s", img_path.name, exc)
 
 
 def _gif_first_frame(src: Path, dst: Path) -> bool:

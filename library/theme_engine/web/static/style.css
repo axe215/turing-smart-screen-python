@@ -332,14 +332,11 @@ footer code {
 }
 
 .theme-card .preview {
-  /* aspect-ratio set inline per-card from canvas dims; this is the fallback */
-  aspect-ratio: 4 / 1;
+  /* Fixed preview tray — first frame goes inside in its native aspect,
+     no stretching, no cropping. Portrait themes show narrow; landscape
+     fill the width. Honest about what the asset actually looks like. */
   width: 100%;
-  /* Make sure the box is tall enough to be a meaningful thumbnail even
-     for very-wide canvases (1920x480 → 4:1 → would be tiny if card is
-     narrow). max-height keeps square/portrait canvases from blowing up. */
-  min-height: 90px;
-  max-height: 240px;
+  height: 180px;
   background: linear-gradient(135deg, #000 0%, #1a1d24 100%);
   border-radius: 6px;
   display: flex;
@@ -352,9 +349,9 @@ footer code {
 }
 
 .theme-card .preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;     /* show the whole frame, never crop */
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;     /* show the whole frame, never crop or stretch */
   image-rendering: high-quality;
 }
 

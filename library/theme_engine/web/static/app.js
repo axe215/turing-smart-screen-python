@@ -96,15 +96,10 @@ function renderThemes() {
     const btn = t.runnable
       ? `<button class="btn btn-primary" data-action="activate">${isActive ? 'Restart' : 'Activate'}</button>`
       : `<button class="btn" disabled title="Upstream schema — run via main.py">Read-only</button>`;
-    // Aspect-ratio per canvas so portrait themes don't get squished and
-    // wide themes don't look tiny. Clamped by CSS min/max-height.
-    const aspect = (t.canvas_width && t.canvas_height)
-      ? `${t.canvas_width} / ${t.canvas_height}`
-      : '4 / 1';
     return `
       <div class="theme-card${isActive ? ' active' : ''}${t.runnable ? '' : ' disabled'}" data-dir="${escapeHTML(t.dir_name)}">
         ${activeBadge}
-        <div class="preview" style="aspect-ratio: ${aspect};">${preview}</div>
+        <div class="preview">${preview}</div>
         <div class="name">${escapeHTML(t.name)} <span class="meta">/${escapeHTML(t.dir_name)}</span></div>
         <div class="info">
           ${typeBadge}${schemaBadge}
