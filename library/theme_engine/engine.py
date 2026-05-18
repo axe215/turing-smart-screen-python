@@ -53,7 +53,25 @@ class ThemeEngine:
         # H.264 (0/90/180/270). Re-encoded copy is cached next to source.
         self.rotate_video = rotate_video
         self.sources = data_sources or DataSourceRegistry()
-        self.renderer = WidgetRenderer(theme, self.sources, screen=screen, font_scale=font_scale)
+
+        # Image-mode themes: bake the background into the renderer so
+        # render_frame produces an opaque frame (no streaming needed).
+        background_image = None
+        if theme.video is None and theme.image is not None:
+            bg_path = theme.background_image_path
+            if bg_path is not None and bg_path.exists():
+                try:
+                    from PIL import Image as _Image
+                    background_image = _Image.open(bg_path).convert("RGBA")
+                except Exception as exc:
+                    log.warning("could not load image bg %s: %s", bg_path, exc)
+        self.renderer = WidgetRenderer(
+            theme,
+            self.sources,
+            screen=screen,
+            font_scale=font_scale,
+            background_image=background_image,
+        )
         self.usb_lock = threading.Lock()
         self.streamer: Optional[StreamingThread] = None
         self.widget_period: float = 1.0

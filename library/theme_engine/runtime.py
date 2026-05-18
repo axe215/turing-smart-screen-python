@@ -113,12 +113,21 @@ class VideoSpec:
 
 
 @dataclass
+class ImageSpec:
+    """Static background image alternative to `video`. Used by themes
+    that don't have an animated source — the engine composites widgets
+    onto this image and sends the result via cmd 102 (no streaming)."""
+    path: str
+
+
+@dataclass
 class ThemeRuntime:
     """A loaded theme with paths resolved to the on-disk theme directory."""
 
     name: str
     canvas: CanvasSpec
     video: Optional[VideoSpec]
+    image: Optional[ImageSpec]
     widgets: List[WidgetSpec]
     theme_dir: Path
     raw: Dict[str, Any]
@@ -128,6 +137,12 @@ class ThemeRuntime:
         if self.video is None:
             return None
         return (self.theme_dir / self.video.path).resolve()
+
+    @property
+    def background_image_path(self) -> Optional[Path]:
+        if self.image is None:
+            return None
+        return (self.theme_dir / self.image.path).resolve()
 
     def image_path(self, rel: str) -> Path:
         return (self.theme_dir / rel).resolve()
@@ -159,12 +174,20 @@ def load_theme(yaml_path) -> ThemeRuntime:
             framerate=int(vd.get("framerate", 25)),
         )
 
+    image = None
+    img_data = data.get("image")
+    if img_data and not video:
+        # image is the fallback background — only used when no video.
+        # (a theme with both would behave as video.)
+        image = ImageSpec(path=str(img_data.get("path", "")))
+
     widgets = [WidgetSpec.from_dict(d) for d in (data.get("widgets") or [])]
 
     return ThemeRuntime(
         name=str(data.get("name", yaml_path.stem)),
         canvas=canvas,
         video=video,
+        image=image,
         widgets=widgets,
         theme_dir=yaml_path.parent,
         raw=data,

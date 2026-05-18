@@ -247,12 +247,19 @@ class ThemeManager:
         canvas = data.get("canvas") or {}
         widgets = data.get("widgets") or []
         video = data.get("video") or {}
+        image_block = data.get("image") or {}
         background_type = "none"
         background_path = None
+        video_name = None
         if video.get("path"):
             video_abs = (entry / video["path"]).resolve()
             background_type = _classify_background(video_abs) or "video"
             background_path = video_abs
+            video_name = video.get("path")
+        elif image_block.get("path"):
+            img_abs = (entry / image_block["path"]).resolve()
+            background_type = _classify_background(img_abs) or "image"
+            background_path = img_abs
         preview = _find_preview(entry)
         return ThemeInfo(
             name=str(data.get("name", entry.name)),
@@ -261,7 +268,7 @@ class ThemeManager:
             canvas=(int(canvas.get("width", 1920)), int(canvas.get("height", 480))),
             widget_count=len(widgets),
             has_video=(background_type == "video"),
-            video_name=video.get("path"),
+            video_name=video_name,
             preview_path=preview,
             background_type=background_type,
             background_path=background_path,

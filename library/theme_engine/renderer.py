@@ -59,10 +59,27 @@ class WidgetRenderer:
         data_sources: DataSourceRegistry,
         screen: str = "9.2",
         font_scale: float = 1.0,
+        background_image: Optional[Image.Image] = None,
     ):
         self.theme = theme
         self.sources = data_sources
         self.font_scale = max(0.1, float(font_scale))
+        # When set, render_frame composes widgets ONTO this image
+        # (canvas-sized RGBA), producing an opaque frame ready to send
+        # via cmd 102 without a streaming video underneath.
+        # When None, the engine is in video mode: produce a transparent
+        # overlay; the screen composes it over the streaming H.264.
+        self.background_image: Optional[Image.Image] = None
+        if background_image is not None:
+            # Pre-fit the background to the design canvas exactly so
+            # widget coordinates line up regardless of the source size.
+            bg = background_image.convert("RGBA")
+            if bg.size != (theme.canvas.width, theme.canvas.height):
+                bg = bg.resize(
+                    (theme.canvas.width, theme.canvas.height),
+                    Image.LANCZOS,
+                )
+            self.background_image = bg
         self.font_cache: Dict[Tuple[str, int, bool], ImageFont.ImageFont] = {}
         self.image_cache: Dict[Path, Image.Image] = {}
         self.native_w, self.native_h = SCREEN_NATIVE.get(screen, SCREEN_NATIVE["9.2"])
@@ -92,8 +109,13 @@ class WidgetRenderer:
         Output is in **portrait native** orientation expected by the
         firmware (native_w × native_h).
         """
-        # Design surface: theme's canvas (landscape) with transparent bg
-        canvas = Image.new("RGBA", (self.design_w, self.design_h), (0, 0, 0, 0))
+        # Design surface: either start from the static background image
+        # (image-mode themes) or a transparent canvas that the streaming
+        # video will compose under (video-mode themes).
+        if self.background_image is not None:
+            canvas = self.background_image.copy()
+        else:
+            canvas = Image.new("RGBA", (self.design_w, self.design_h), (0, 0, 0, 0))
         draw = ImageDraw.Draw(canvas)
 
         for w in self.theme.widgets:
