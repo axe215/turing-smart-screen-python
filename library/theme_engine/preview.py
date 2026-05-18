@@ -80,7 +80,15 @@ def _video_first_frame(src: Path, dst: Path, canvas=None) -> bool:
 def _match_canvas_orientation(img_path: Path, canvas) -> None:
     """If the saved preview's aspect ratio doesn't match the theme canvas
     (e.g. screen-native portrait source for a landscape design), rotate
-    90° so the preview reads as the theme is meant to look."""
+    so the preview reads as the theme is meant to look.
+
+    Source MP4s (eva.rei's Finalrei.mp4 in particular) are encoded in the
+    screen's native portrait so the firmware can play them without any
+    extra transform. The theme's logical canvas, however, is landscape —
+    that's how the user actually sees it after the panel rotation. We
+    pick +90° (CCW) so the original author's "top" of the portrait
+    becomes the LEFT of the landscape (head-up reading order).
+    """
     canvas_w, canvas_h = canvas
     if not canvas_w or not canvas_h:
         return
@@ -92,7 +100,8 @@ def _match_canvas_orientation(img_path: Path, canvas) -> None:
             img_landscape = iw >= ih
             if canvas_landscape == img_landscape:
                 return
-            rotated = img.rotate(-90, expand=True)
+            # 90° CCW — see docstring for direction rationale
+            rotated = img.rotate(90, expand=True)
         rotated.save(img_path)
     except Exception as exc:
         log.debug("orientation match failed for %s: %s", img_path.name, exc)
