@@ -27,6 +27,7 @@ from flask import (
 )
 
 from ..manager import EngineParams, ThemeManager
+from ..preview import resolve_preview
 
 log = logging.getLogger(__name__)
 
@@ -85,8 +86,17 @@ def create_app(manager: ThemeManager) -> Flask:
     @app.route("/themes/<dir_name>/preview")
     def theme_preview(dir_name: str):
         info = manager.get_theme(dir_name)
-        if info is None or info.preview_path is None:
+        if info is None:
             abort(404)
-        return send_file(str(info.preview_path))
+        # Lazy preview generation: video → first frame, gif → first frame,
+        # image → source image. Result cached under <theme>/.cache/.
+        resolved = resolve_preview(
+            info.yaml_path.parent,
+            info.background_type,
+            info.background_path,
+        )
+        if resolved is None:
+            abort(404)
+        return send_file(str(resolved))
 
     return app

@@ -4,9 +4,34 @@ themes available in res/themes/, and can swap which one is running.
 Used by the Phase 5c Flask UI and by any future tray/CLI front-end.
 The manager itself is UI-agnostic — it just exposes start/stop/swap +
 a status snapshot, and a list_themes() catalog.
+
+Memory audit (Phase 5f):
+
+Per-theme state lives in ThemeEngine → WidgetRenderer (font_cache,
+image_cache, chart_history) and StreamingThread (reads chunks and
+discards them every iteration). All caches are bounded:
+  - font_cache: ≤ ~30 entries (one per (family, scaled_size, bold))
+  - image_cache: ≤ # of image widgets in the theme
+  - chart_history: explicit deque(maxlen=…)
+
+On theme swap, _stop_locked() drops the engine reference; Python's
+refcount GC reclaims the old objects since there are no cycles. We
+follow up with gc.collect() to make any remaining cycles (e.g. via
+threading.Thread back-references) release immediately rather than
+waiting for the next generational sweep.
+
+Long-lived shared state:
+  - The LcdCommTuringUSB handle stays alive for the manager's lifetime
+    (passed in once at construction). Engines reuse it.
+  - LHM .NET runtime initialized once at first sensor read, kept for
+    the process lifetime by design — not a leak.
+
+Memory of the running process is exposed via status()["process_rss_mb"]
+so users can spot any drift in the UI footer over hours.
 """
 from __future__ import annotations
 
+import gc
 import logging
 import threading
 import time
@@ -49,6 +74,12 @@ class ThemeInfo:
         return self.schema == "axe215_v1"
 
     def to_dict(self) -> Dict[str, Any]:
+        # Always offer a /preview URL: the endpoint generates the
+        # preview lazily (first MP4 frame, first GIF frame, or the
+        # source image) and returns 404 only if nothing is available.
+        preview_url = None
+        if self.preview_path is not None or self.background_type in ("video", "gif", "image"):
+            preview_url = f"/themes/{self.dir_name}/preview"
         return {
             "name": self.name,
             "dir_name": self.dir_name,
@@ -57,7 +88,7 @@ class ThemeInfo:
             "widget_count": self.widget_count,
             "has_video": self.has_video,
             "video_name": self.video_name,
-            "preview_url": f"/themes/{self.dir_name}/preview" if self.preview_path else None,
+            "preview_url": preview_url,
             "background_type": self.background_type,
             "schema": self.schema,
             "runnable": self.runnable,
@@ -352,6 +383,11 @@ class ThemeManager:
             log.warning("active engine stop raised: %s", exc)
         self.active_engine = None
         self.active_theme = None
+        # Encourage immediate cleanup of the old renderer's font_cache /
+        # image_cache / chart_history (no cycles expected, but Pillow
+        # font objects hold C-extension state that's nicer to free now
+        # than on the next generational sweep).
+        gc.collect()
 
     def swap(self, dir_name: str, params: Optional[EngineParams] = None) -> None:
         """Alias for start() — kept for readability at call-sites."""
