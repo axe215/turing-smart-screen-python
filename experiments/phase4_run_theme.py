@@ -66,10 +66,10 @@ def main() -> int:
     p.add_argument(
         "--font-scale",
         type=float,
-        default=1.0,
+        default=1.3,
         help=(
-            "Multiply every widget's font size by this factor. Default 1.0. "
-            "Use 1.1-1.3 to make small metrics easier to read on the 9.2\"."
+            "Multiply every widget's font size by this factor. Default 1.3 "
+            "(tuned for the 9.2\" so eva.rei labels are comfortably readable)."
         ),
     )
     p.add_argument(

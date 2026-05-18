@@ -37,6 +37,15 @@ FONT_FALLBACKS = {
     # overflow their column and visually collide with neighbours.
     "Digital Dismay": ["DS-Digital", "LCD", "Liquid Crystal", "Motorblock", "Kamikaze"],
     "LCD-Dismay": ["DS-Digital", "LCD", "Liquid Crystal"],
+    # Osaka Japan (used for CPU/GPU model names and the clock) is a
+    # stylized Japanese-flavored font that reads poorly at small sizes
+    # for Latin model strings like "AMD64 Family 25 Model 97 ...".
+    # Swap in a clean sans-serif from the bundle.
+    "Osaka Japan": [
+        "HarmonyOS Sans", "HarmonyOS Sans Bold",
+        "Kumbh Sans", "Helvetica Neue LT Pro",
+        "Helvetica Neue", "Arial",
+    ],
 }
 
 
