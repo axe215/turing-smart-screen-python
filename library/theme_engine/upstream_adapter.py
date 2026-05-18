@@ -187,7 +187,7 @@ def _build_text_widget(path: tuple, leaf: Dict[str, Any], source: str, font_root
     y = leaf.get("Y")
     if x is None or y is None:
         return None
-    return {
+    out = {
         "id": _id_from_path(path),
         "type": "data",
         "source": source,
@@ -196,6 +196,14 @@ def _build_text_widget(path: tuple, leaf: Dict[str, Any], source: str, font_root
         "show_unit": bool(leaf.get("SHOW_UNIT", False)),
         "font": _font_from_upstream(leaf, font_root),
     }
+    # Honor explicit MIN_SIZE override (upstream stats.py:101). Absent
+    # → renderer falls back to DEFAULT_MIN_SIZE per source.
+    if "MIN_SIZE" in leaf:
+        try:
+            out["min_size"] = int(leaf["MIN_SIZE"])
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def _build_progress_bar(path: tuple, leaf: Dict[str, Any], source: str) -> Optional[Dict[str, Any]]:

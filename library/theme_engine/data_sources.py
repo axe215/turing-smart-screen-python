@@ -354,6 +354,27 @@ def _fmt_net(rate: float) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Per-source default min_size — matches upstream mathoudebine's
+# display_themed_*_value() defaults in library/stats.py. The number is
+# right-padded with spaces to this width so widget X coords (which the
+# theme author chose assuming the value is "  5"%, not "5"%) line up.
+DEFAULT_MIN_SIZE: Dict[str, int] = {
+    "cpu_percentage": 3,
+    "cpu_temp": 3,
+    "cpu_freq": 4,
+    "cpu_fan_speed": 3,
+    "cpu_power": 5,
+    "gpu_percentage": 3,
+    "gpu_temp": 3,
+    "gpu_fan_speed": 3,
+    "gpu_power": 5,
+    "fps": 4,
+    "ram_percentage": 3,
+    "ram_total": 5,
+    "ram_used_gb": 5,
+}
+
+
 def _renderer(value_fn: Callable[[], Optional[float]], unit: str = "", fmt: str = "{:.0f}"):
     """Build a callable(show_unit) → (value_str, unit_str).
 

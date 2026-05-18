@@ -16,7 +16,7 @@ from typing import Deque
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .data_sources import DataSourceRegistry
+from .data_sources import DataSourceRegistry, DEFAULT_MIN_SIZE
 from .runtime import FontSpec, ThemeRuntime, WidgetSpec
 
 log = logging.getLogger(__name__)
@@ -191,6 +191,13 @@ class WidgetRenderer:
             value_part, unit_part = (result, "")
         if not value_part and not unit_part:
             return
+        # Right-pad to min_size — matches upstream mathoudebine layout,
+        # where percent/temp values are formatted "%>3" so themes can
+        # position widgets assuming a fixed 3-character field. Per-widget
+        # `min_size` overrides the per-source default.
+        ms = int(w.raw.get("min_size", DEFAULT_MIN_SIZE.get(w.source, 0)))
+        if ms > 0 and value_part:
+            value_part = f"{value_part:>{ms}}"
         # Render the value in widget color, then the unit in inverted
         # color immediately after — same style as Text widgets so units
         # like "GB" / "W" / "%" pop visually against the bright numbers.
