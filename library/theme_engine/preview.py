@@ -33,9 +33,17 @@ def _cache_path(theme_dir: Path) -> Path:
     return theme_dir / ".cache" / "preview.png"
 
 
-def _video_first_frame(src: Path, dst: Path) -> bool:
+def _video_first_frame(src: Path, dst: Path, canvas=None) -> bool:
     """Extract the first frame of a video file to `dst` via ffmpeg.
-    Returns True on success."""
+
+    If `canvas=(w,h)` is given and the resulting frame's orientation
+    doesn't match (e.g. source is portrait 480x1920 but the theme's
+    canvas is landscape 1920x480 because the screen is mounted rotated),
+    we rotate the frame to match the theme's design orientation so the
+    dashboard preview reads "as designed".
+
+    Returns True on success.
+    """
     try:
         from .video_utils import get_ffmpeg_path
     except ImportError:
@@ -64,7 +72,30 @@ def _video_first_frame(src: Path, dst: Path) -> bool:
             src.name, proc.returncode, proc.stderr[-300:]
         )
         return False
+    if dst.exists() and canvas is not None:
+        _match_canvas_orientation(dst, canvas)
     return dst.exists()
+
+
+def _match_canvas_orientation(img_path: Path, canvas) -> None:
+    """If the saved preview's aspect ratio doesn't match the theme canvas
+    (e.g. screen-native portrait source for a landscape design), rotate
+    90° so the preview reads as the theme is meant to look."""
+    canvas_w, canvas_h = canvas
+    if not canvas_w or not canvas_h:
+        return
+    try:
+        from PIL import Image
+        with Image.open(img_path) as img:
+            iw, ih = img.size
+            canvas_landscape = canvas_w >= canvas_h
+            img_landscape = iw >= ih
+            if canvas_landscape == img_landscape:
+                return
+            rotated = img.rotate(-90, expand=True)
+        rotated.save(img_path)
+    except Exception as exc:
+        log.debug("orientation match failed for %s: %s", img_path.name, exc)
 
 
 def _gif_first_frame(src: Path, dst: Path) -> bool:
@@ -88,9 +119,14 @@ def resolve_preview(
     theme_dir: Path,
     background_type: str,
     background_path: Optional[Path],
+    canvas=None,
 ) -> Optional[Path]:
     """Return a usable preview image path for the theme, generating one
     if necessary. Returns None when there's nothing to show.
+
+    `canvas=(w,h)` is the theme's design canvas; used to rotate video
+    first-frames into landscape orientation when the source is the
+    screen-native portrait encoding.
     """
     theme_dir = Path(theme_dir)
 
@@ -108,11 +144,10 @@ def resolve_preview(
     if not background_path or not background_path.exists():
         return None
     if background_type == "image":
-        # No generation needed — just serve the source image. Cheaper
-        # than re-encoding and the dashboard displays it at 4:1 anyway.
+        # No generation needed — just serve the source image.
         return background_path
     if background_type == "video":
-        if _video_first_frame(background_path, cache):
+        if _video_first_frame(background_path, cache, canvas=canvas):
             return cache
     if background_type == "gif":
         if _gif_first_frame(background_path, cache):

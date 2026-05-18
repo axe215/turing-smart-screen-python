@@ -88,12 +88,14 @@ def create_app(manager: ThemeManager) -> Flask:
         info = manager.get_theme(dir_name)
         if info is None:
             abort(404)
-        # Lazy preview generation: video → first frame, gif → first frame,
-        # image → source image. Result cached under <theme>/.cache/.
+        # Lazy preview generation: video → first frame (rotated to match
+        # canvas orientation), gif → first frame, image → source image.
+        # Cached under <theme>/.cache/.
         resolved = resolve_preview(
             info.yaml_path.parent,
             info.background_type,
             info.background_path,
+            canvas=info.canvas,
         )
         if resolved is None:
             abort(404)

@@ -17,7 +17,10 @@
     <span id="status-theme">—</span>
     <span class="meta" id="status-meta"></span>
   </div>
-  <button id="stop-btn" class="btn btn-danger" disabled>Stop</button>
+  <div class="header-actions">
+    <span class="mem-chip" id="status-memory" title="RSS — оперативная память процесса">—</span>
+    <button id="stop-btn" class="btn btn-danger" disabled>Stop</button>
+  </div>
 </header>
 
 <main>
@@ -62,9 +65,6 @@
     <div id="theme-grid">Loading…</div>
   </section>
 
-  <footer>
-    <span class="meta" id="footer-memory">memory: —</span>
-  </footer>
 </main>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>

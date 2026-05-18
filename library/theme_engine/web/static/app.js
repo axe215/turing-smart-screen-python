@@ -10,7 +10,7 @@ const els = {
   stopBtn: $('#stop-btn'),
   themeGrid: $('#theme-grid'),
   filterBar: $('#filter-bar'),
-  footerMemory: $('#footer-memory'),
+  statusMemory: $('#status-memory'),
   rotate180: $('#param-rotate-180'),
   rotateVideo: $('#param-rotate-video'),
   fontScale: $('#param-font-scale'),
@@ -96,10 +96,15 @@ function renderThemes() {
     const btn = t.runnable
       ? `<button class="btn btn-primary" data-action="activate">${isActive ? 'Restart' : 'Activate'}</button>`
       : `<button class="btn" disabled title="Upstream schema — run via main.py">Read-only</button>`;
+    // Aspect-ratio per canvas so portrait themes don't get squished and
+    // wide themes don't look tiny. Clamped by CSS min/max-height.
+    const aspect = (t.canvas_width && t.canvas_height)
+      ? `${t.canvas_width} / ${t.canvas_height}`
+      : '4 / 1';
     return `
       <div class="theme-card${isActive ? ' active' : ''}${t.runnable ? '' : ' disabled'}" data-dir="${escapeHTML(t.dir_name)}">
         ${activeBadge}
-        <div class="preview">${preview}</div>
+        <div class="preview" style="aspect-ratio: ${aspect};">${preview}</div>
         <div class="name">${escapeHTML(t.name)} <span class="meta">/${escapeHTML(t.dir_name)}</span></div>
         <div class="info">
           ${typeBadge}${schemaBadge}
@@ -168,7 +173,7 @@ async function refreshStatus() {
     els.stopBtn.disabled = true;
   }
   if (typeof lastStatus.process_rss_mb === 'number') {
-    els.footerMemory.textContent = `memory: ${lastStatus.process_rss_mb.toFixed(1)} MB RSS`;
+    els.statusMemory.textContent = `${lastStatus.process_rss_mb.toFixed(0)} MB`;
   }
   if (!els.fontScale.dataset.synced) {
     writeParams(lastStatus.params);
