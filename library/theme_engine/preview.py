@@ -2,7 +2,9 @@
 
 Resolution order (first hit wins):
   1. <theme_dir>/preview.png|jpg|jpeg   (hand-supplied; never regenerated)
-  2. <theme_dir>/.cache/preview.png     (auto-generated on first miss; reused)
+  2. <theme_dir>/.cache/preview.png     (auto-generated; mtime checked
+     against the source — regenerated if the user re-saves the theme's
+     video / gif so the dashboard never shows a stale thumbnail)
   3. on miss, generate based on background_type:
        video → ffmpeg -ss 0 ... first frame to .cache/preview.png
        gif   → PIL extract frame 0 to .cache/preview.png
@@ -88,6 +90,23 @@ def _gif_first_frame(src: Path, dst: Path) -> bool:
         return False
 
 
+def _cache_is_fresh(cache: Path, source: Optional[Path]) -> bool:
+    """True iff `cache` exists and is at least as new as `source`.
+
+    Used to keep the auto-generated thumbnail in sync with the theme
+    asset — when the user re-saves a video / gif, the next page load
+    triggers a fresh ffmpeg extract instead of returning the stale png.
+    """
+    if not cache.exists():
+        return False
+    if source is None or not source.exists():
+        return True  # nothing to compare against; trust the cache
+    try:
+        return cache.stat().st_mtime >= source.stat().st_mtime
+    except OSError:
+        return False
+
+
 def resolve_preview(
     theme_dir: Path,
     background_type: str,
@@ -108,9 +127,9 @@ def resolve_preview(
     if hand is not None:
         return hand
 
-    # 2) cached auto-generated
+    # 2) cached auto-generated — mtime-checked against the source.
     cache = _cache_path(theme_dir)
-    if cache.exists():
+    if _cache_is_fresh(cache, background_path):
         return cache
 
     # 3) generate based on type
@@ -126,3 +145,36 @@ def resolve_preview(
         if _gif_first_frame(background_path, cache):
             return cache
     return None
+
+
+def prewarm_previews(themes, background=True) -> None:
+    """Trigger preview generation for themes that don't have a fresh
+    cache yet. Used at server startup so the dashboard's first paint
+    serves disk-cached PNGs instead of running ffmpeg per request.
+
+    `themes` is an iterable of objects with:
+      - yaml_path (Path) — parent is the theme dir
+      - background_type (str)
+      - background_path (Optional[Path])
+      - canvas (tuple) — optional, passed through
+
+    When `background=True` (default) the work runs on a daemon thread
+    so app startup is not blocked. The function returns immediately.
+    """
+    def _run():
+        for t in themes:
+            try:
+                resolve_preview(
+                    Path(t.yaml_path).parent,
+                    t.background_type,
+                    t.background_path,
+                    canvas=getattr(t, "canvas", None),
+                )
+            except Exception as exc:
+                log.debug("prewarm failed for %s: %s", t.yaml_path, exc)
+
+    if background:
+        import threading
+        threading.Thread(target=_run, name="preview-prewarm", daemon=True).start()
+    else:
+        _run()

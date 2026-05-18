@@ -109,6 +109,21 @@ class WidgetRenderer:
     # Public
     # ------------------------------------------------------------------
 
+    def clear_caches(self) -> None:
+        """Release per-theme caches.
+
+        Called by ThemeManager._stop_locked() right before the renderer
+        reference is dropped. The garbage collector would eventually
+        reclaim the same memory, but Pillow font objects hold C-extension
+        state and pre-fit background bitmaps can be many MB — clearing
+        them explicitly gives the next theme a clean slate immediately
+        instead of waiting for the next generational sweep.
+        """
+        self.font_cache.clear()
+        self.image_cache.clear()
+        self.chart_history.clear()
+        self.background_image = None
+
     def render_frame(self, rotate_180: bool = False) -> Image.Image:
         """Build a full-screen RGBA PIL image ready to send via cmd 102.
 

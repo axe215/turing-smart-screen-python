@@ -180,8 +180,12 @@ function renderThemes() {
     const rot = previewRotations[t.dir_name] | 0;
     // No inline style up front — applyPreviewRotation() handles dimensions
     // after the img loads (we need the tray's clientWidth/Height first).
+    // loading="lazy" defers off-screen card previews until the user
+    // scrolls — initial paint downloads only the visible row, dropping
+    // page-load bandwidth from ~12 MB to ~1-2 MB for a typical viewport.
+    // decoding="async" keeps decode off the main thread.
     const previewImg = t.preview_url
-      ? `<img src="${t.preview_url}" alt="${escapeHTML(t.name)}" data-rot="${rot}">`
+      ? `<img src="${t.preview_url}" alt="${escapeHTML(t.name)}" data-rot="${rot}" loading="lazy" decoding="async">`
       : `<span>${bgTypeIcon(t.background_type)}</span>`;
     const rotateBtn = t.preview_url
       ? `<button class="preview-rotate" data-action="rotate-preview" title="Повернуть превью">↻</button>`

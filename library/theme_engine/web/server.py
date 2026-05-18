@@ -27,7 +27,7 @@ from flask import (
 )
 
 from ..manager import EngineParams, ThemeManager
-from ..preview import resolve_preview
+from ..preview import resolve_preview, prewarm_previews
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def create_app(manager: ThemeManager) -> Flask:
             abort(404)
         # Lazy preview generation: video → first frame (rotated to match
         # canvas orientation), gif → first frame, image → source image.
-        # Cached under <theme>/.cache/.
+        # Cached under <theme>/.cache/, mtime-checked against the source.
         resolved = resolve_preview(
             info.yaml_path.parent,
             info.background_type,
@@ -100,6 +100,24 @@ def create_app(manager: ThemeManager) -> Flask:
         )
         if resolved is None:
             abort(404)
-        return send_file(str(resolved))
+        # max_age tells the browser to keep the bytes for an hour; combined
+        # with Flask's auto Last-Modified / ETag, a refresh after a theme
+        # asset change still triggers a 304 round-trip (the mtime check in
+        # resolve_preview() rebuilds the cache file before that ETag is
+        # computed, so the response body stays in sync).
+        return send_file(str(resolved), max_age=3600, conditional=True)
+
+    # Kick off lazy thumbnail generation for video/gif themes in the
+    # background so the first dashboard load doesn't pay an ffmpeg
+    # round-trip per card. Image themes need no prewarming — they serve
+    # the hand-supplied preview.png or source image as-is.
+    try:
+        prewarm_previews(
+            [t for t in manager.list_themes()
+             if t.background_type in ("video", "gif")],
+            background=True,
+        )
+    except Exception:
+        log.exception("preview prewarm failed to start")
 
     return app

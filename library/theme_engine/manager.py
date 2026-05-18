@@ -415,12 +415,18 @@ class ThemeManager:
             self.active_engine.stop()
         except Exception as exc:
             log.warning("active engine stop raised: %s", exc)
+        # Explicit cache clear on the old renderer — drops font/image/
+        # chart_history immediately instead of waiting for GC to find it.
+        try:
+            renderer = getattr(self.active_engine, "renderer", None)
+            if renderer is not None:
+                renderer.clear_caches()
+        except Exception as exc:
+            log.debug("renderer.clear_caches() raised: %s", exc)
         self.active_engine = None
         self.active_theme = None
-        # Encourage immediate cleanup of the old renderer's font_cache /
-        # image_cache / chart_history (no cycles expected, but Pillow
-        # font objects hold C-extension state that's nicer to free now
-        # than on the next generational sweep).
+        # Belt-and-braces: trigger a collection so the now-orphaned Pillow
+        # bitmaps return their C-extension memory to the OS promptly.
         gc.collect()
 
     def swap(self, dir_name: str, params: Optional[EngineParams] = None) -> None:
