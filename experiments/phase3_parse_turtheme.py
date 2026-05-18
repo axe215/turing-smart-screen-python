@@ -159,12 +159,23 @@ def main() -> int:
     p.add_argument(
         "--chart-net-max",
         type=float,
-        default=500.0,
+        default=150.0,
         metavar="MBPS",
         help=(
             "max_value (Mbps) for network charts (net_upload / net_download). "
-            "Default 500. UsbMonitorL themes ship max_value=100 which pegs at "
+            "Default 150. UsbMonitorL themes ship max_value=100 which pegs at "
             "the top on modern home internet — override here when emitting."
+        ),
+    )
+    p.add_argument(
+        "--chart-column-width",
+        type=int,
+        default=8,
+        metavar="PX",
+        help=(
+            "Width of each chart bar in pixels (default 8). UsbMonitorL "
+            "themes ship column_width=5 (40 bars across a 200px chart); "
+            "wider columns mean fewer but more readable bars."
         ),
     )
     args = p.parse_args()
@@ -187,6 +198,7 @@ def main() -> int:
             video_src=args.video_src,
             fonts_src=args.fonts_src,
             net_chart_max=args.chart_net_max,
+            chart_column_width=args.chart_column_width,
         )
         print(f"  done. Layout:")
         for p in sorted(out_dir.rglob("*")):

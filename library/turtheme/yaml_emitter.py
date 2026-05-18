@@ -135,7 +135,8 @@ def _widget_to_dict(
     idx: int,
     used_ids: set,
     image_rename_map: Optional[Dict[str, str]] = None,
-    net_chart_max: float = 500.0,
+    net_chart_max: float = 150.0,
+    chart_column_width: int = 8,
 ) -> Optional[Dict[str, Any]]:
     # Generate a unique id by adding a numeric suffix on collision
     base_id = slug_id(w.display_name, f"widget_{idx}")
@@ -213,8 +214,9 @@ def _widget_to_dict(
             base["line_width"] = int(w.line_width)
         if w.border_width != 1:
             base["border_width"] = int(w.border_width)
-        if w.column_width != 5:
-            base["column_width"] = int(w.column_width)
+        # Always emit column_width with our preferred default so the
+        # renderer doesn't fall back to the .turtheme value (5).
+        base["column_width"] = int(chart_column_width)
         if w.coefficient != 1.0:
             base["coefficient"] = float(w.coefficient)
         return base
@@ -247,7 +249,8 @@ def to_yaml_dict(
     theme: ThemeDef,
     video_filename: Optional[str],
     image_rename_map: Optional[Dict[str, str]] = None,
-    net_chart_max: float = 500.0,
+    net_chart_max: float = 150.0,
+    chart_column_width: int = 8,
 ) -> Dict[str, Any]:
     """Build the YAML-ready dict from a ThemeDef.
 
@@ -287,6 +290,7 @@ def to_yaml_dict(
             w, i, used_ids,
             image_rename_map=image_rename_map,
             net_chart_max=net_chart_max,
+            chart_column_width=chart_column_width,
         )
         if d is not None:
             widgets_out.append(d)
@@ -314,7 +318,8 @@ def export_theme_dir(
     video_src: Optional[Path] = None,
     fonts_src: Optional[Path] = None,
     write_bitmaps: bool = True,
-    net_chart_max: float = 500.0,
+    net_chart_max: float = 150.0,
+    chart_column_width: int = 8,
 ) -> Path:
     """Write a complete theme directory: theme.yaml + video/ + images/ + fonts/.
 
@@ -394,6 +399,7 @@ def export_theme_dir(
         video_filename=video_filename,
         image_rename_map=image_rename_map,
         net_chart_max=net_chart_max,
+        chart_column_width=chart_column_width,
     )
     yaml_path = out_dir / "theme.yaml"
     with open(yaml_path, "w", encoding="utf-8") as f:
