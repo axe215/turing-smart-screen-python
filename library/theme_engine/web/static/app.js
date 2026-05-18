@@ -37,6 +37,37 @@ let previewRotations = loadPreviewRotations();
 
 function nextRotation(deg) { return (deg + 90) % 360; }
 
+/**
+ * Apply a CSS rotation to a preview <img>.
+ *
+ * For 0° / 180° we let CSS handle sizing (max-width/height + contain).
+ * For 90° / 270° we explicitly size the IMG element to the SWAPPED
+ * tray dimensions before rotating: the image lays out at tray-height
+ * wide × tray-width tall, object-fit:contain keeps its native aspect,
+ * then the visual rotation swaps it back into a tray-width × tray-height
+ * landscape that actually fills the box.
+ */
+function applyPreviewRotation(img, deg) {
+  if (!img) return;
+  const tray = img.closest('.preview');
+  if (!tray) return;
+  const tw = tray.clientWidth;
+  const th = tray.clientHeight;
+  if (deg === 90 || deg === 270) {
+    img.style.width = th + 'px';
+    img.style.height = tw + 'px';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    img.style.transform = `rotate(${deg}deg)`;
+  } else {
+    img.style.width = '';
+    img.style.height = '';
+    img.style.maxWidth = '';
+    img.style.maxHeight = '';
+    img.style.transform = deg ? `rotate(${deg}deg)` : '';
+  }
+}
+
 function readParams() {
   return {
     rotate_180: els.rotate180.checked,
@@ -109,10 +140,10 @@ function renderThemes() {
       : `<button class="btn" disabled title="Upstream schema — run via main.py">Read-only</button>`;
     // Per-card preview rotation: applied client-side, persisted to localStorage.
     const rot = previewRotations[t.dir_name] | 0;
-    const imgClass = rot ? ` class="rot-${rot}"` : '';
-    const imgStyle = rot ? ` style="transform: rotate(${rot}deg);"` : '';
+    // No inline style up front — applyPreviewRotation() handles dimensions
+    // after the img loads (we need the tray's clientWidth/Height first).
     const previewImg = t.preview_url
-      ? `<img src="${t.preview_url}" alt="${escapeHTML(t.name)}"${imgClass}${imgStyle}>`
+      ? `<img src="${t.preview_url}" alt="${escapeHTML(t.name)}" data-rot="${rot}">`
       : `<span>${bgTypeIcon(t.background_type)}</span>`;
     const rotateBtn = t.preview_url
       ? `<button class="preview-rotate" data-action="rotate-preview" title="Повернуть превью">↻</button>`
@@ -171,17 +202,23 @@ function renderThemes() {
       if (next === 0) delete previewRotations[dir];
       else previewRotations[dir] = next;
       savePreviewRotations(previewRotations);
-      // In-place update — no full re-render needed
       const img = card.querySelector('.preview img');
       const label = card.querySelector('.preview-rotate-label');
-      if (img) {
-        img.style.transform = next ? `rotate(${next}deg)` : '';
-        // Swap rotation-specific size class (90/270 vs 0/180)
-        img.classList.remove('rot-90', 'rot-180', 'rot-270');
-        if (next) img.classList.add(`rot-${next}`);
-      }
+      applyPreviewRotation(img, next);
+      if (img) img.dataset.rot = next;
       if (label) label.textContent = next ? `${next}°` : '';
     });
+  });
+
+  // Apply persisted rotations to images as they load (need tray
+  // dimensions, which are stable once the card is in the DOM).
+  $$('.theme-card .preview img').forEach(img => {
+    const deg = parseInt(img.dataset.rot || '0', 10);
+    if (img.complete) {
+      applyPreviewRotation(img, deg);
+    } else {
+      img.addEventListener('load', () => applyPreviewRotation(img, deg), {once: true});
+    }
   });
 }
 
