@@ -185,6 +185,48 @@ section h2 {
 
 #params strong { color: var(--accent); font-weight: 600; }
 
+/* ---- Filter bar ------------------------------------------------------- */
+
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 6px 14px;
+  background: var(--bg-elev2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.filter-btn:hover { color: var(--text); border-color: var(--accent); }
+.filter-btn.active {
+  background: var(--accent);
+  color: #0a0d12;
+  border-color: var(--accent);
+}
+
+/* ---- Footer ----------------------------------------------------------- */
+
+footer {
+  text-align: center;
+  padding: 16px 24px 24px;
+  color: var(--muted);
+  font-size: 11px;
+}
+footer code {
+  background: var(--bg-elev2);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
 /* ---- Theme cards ------------------------------------------------------ */
 
 #theme-grid {
@@ -232,6 +274,32 @@ section h2 {
 }
 .theme-card .active-badge::before {
   content: "● ";
+}
+
+.theme-card .type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-radius: 4px;
+  margin-right: 4px;
+}
+.theme-card .type-badge.video  { background: rgba(78, 195, 255, 0.12); color: var(--accent);  border: 1px solid rgba(78, 195, 255, 0.3); }
+.theme-card .type-badge.gif    { background: rgba(255, 174, 78, 0.12); color: #ffae4e;        border: 1px solid rgba(255, 174, 78, 0.3); }
+.theme-card .type-badge.image  { background: rgba(176, 142, 255, 0.12); color: #b08eff;       border: 1px solid rgba(176, 142, 255, 0.3); }
+.theme-card .type-badge.none   { background: rgba(138, 147, 163, 0.10); color: var(--muted);  border: 1px solid var(--border); }
+.theme-card .type-badge.legacy { background: rgba(255, 93, 108, 0.10); color: var(--danger);  border: 1px solid rgba(255, 93, 108, 0.3); }
+
+.theme-card.disabled {
+  opacity: 0.65;
+}
+.theme-card.disabled .actions .btn:disabled {
+  background: var(--bg-elev2);
+  color: var(--muted);
+  border-color: var(--border);
+  cursor: not-allowed;
 }
 
 .theme-card .preview {

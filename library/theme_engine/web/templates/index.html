@@ -51,9 +51,20 @@
 
   <section id="themes">
     <h2>Темы</h2>
-    <p class="hint">Карточка с зелёной обводкой и значком ● ACTIVE — то, что сейчас идёт на экране.</p>
+    <p class="hint">Карточка с зелёной обводкой и значком ● ACTIVE — то, что сейчас идёт на экране. Темы с тегом «legacy» — это апстрим mathoudebine, для них нужен <code>main.py</code>, наш движок их не запускает.</p>
+    <div class="filter-bar" id="filter-bar">
+      <button class="filter-btn active" data-filter="all">Все</button>
+      <button class="filter-btn" data-filter="video">🎥 Видео</button>
+      <button class="filter-btn" data-filter="gif">🌀 GIF</button>
+      <button class="filter-btn" data-filter="image">🖼 Картинка</button>
+      <button class="filter-btn" data-filter="native">✅ Запускаемые</button>
+    </div>
     <div id="theme-grid">Loading…</div>
   </section>
+
+  <footer>
+    <span class="meta" id="footer-memory">memory: —</span>
+  </footer>
 </main>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>

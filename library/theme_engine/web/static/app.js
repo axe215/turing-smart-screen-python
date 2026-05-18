@@ -9,7 +9,8 @@ const els = {
   statusMeta: $('#status-meta'),
   stopBtn: $('#stop-btn'),
   themeGrid: $('#theme-grid'),
-  // params
+  filterBar: $('#filter-bar'),
+  footerMemory: $('#footer-memory'),
   rotate180: $('#param-rotate-180'),
   rotateVideo: $('#param-rotate-video'),
   fontScale: $('#param-font-scale'),
@@ -20,6 +21,7 @@ const els = {
 
 let themesCache = [];
 let lastStatus = null;
+let currentFilter = 'all';
 
 function readParams() {
   return {
@@ -60,30 +62,50 @@ async function refreshThemes() {
   renderThemes();
 }
 
+function passesFilter(t) {
+  if (currentFilter === 'all') return true;
+  if (currentFilter === 'native') return t.runnable;
+  return t.background_type === currentFilter;
+}
+
+function bgTypeIcon(type) {
+  return ({video: '🎥', gif: '🌀', image: '🖼', none: '·'}[type] || '·');
+}
+
 function renderThemes() {
   if (!themesCache.length) {
     els.themeGrid.innerHTML = '<p style="color:var(--muted)">Нет тем в res/themes/. Сгенерируй через phase3_parse_turtheme.py --emit-theme.</p>';
     return;
   }
   const activeDir = lastStatus?.active_theme;
-  els.themeGrid.innerHTML = themesCache.map(t => {
+  const visible = themesCache.filter(passesFilter);
+  if (!visible.length) {
+    els.themeGrid.innerHTML = '<p style="color:var(--muted)">Под фильтр ничего не подошло.</p>';
+    return;
+  }
+  els.themeGrid.innerHTML = visible.map(t => {
     const isActive = t.dir_name === activeDir;
     const preview = t.preview_url
-      ? `<img src="${t.preview_url}" alt="${t.name}">`
-      : (t.has_video ? '<span>🎥 video</span>' : '<span>no preview</span>');
-    const videoTag = t.has_video ? '🎥' : '·';
-    const badge = isActive ? '<div class="active-badge">ACTIVE</div>' : '';
+      ? `<img src="${t.preview_url}" alt="${escapeHTML(t.name)}">`
+      : `<span>${bgTypeIcon(t.background_type)}</span>`;
+    const activeBadge = isActive ? '<div class="active-badge">ACTIVE</div>' : '';
+    const typeBadge = `<span class="type-badge ${t.background_type}">${bgTypeIcon(t.background_type)} ${t.background_type}</span>`;
+    const schemaBadge = t.runnable
+      ? ''
+      : '<span class="type-badge legacy">legacy</span>';
+    const btn = t.runnable
+      ? `<button class="btn btn-primary" data-action="activate">${isActive ? 'Restart' : 'Activate'}</button>`
+      : `<button class="btn" disabled title="Upstream schema — run via main.py">Read-only</button>`;
     return `
-      <div class="theme-card${isActive ? ' active' : ''}" data-dir="${t.dir_name}">
-        ${badge}
+      <div class="theme-card${isActive ? ' active' : ''}${t.runnable ? '' : ' disabled'}" data-dir="${escapeHTML(t.dir_name)}">
+        ${activeBadge}
         <div class="preview">${preview}</div>
-        <div class="name">${escapeHTML(t.name)}</div>
+        <div class="name">${escapeHTML(t.name)} <span class="meta">/${escapeHTML(t.dir_name)}</span></div>
         <div class="info">
-          ${t.canvas_width}×${t.canvas_height} ${videoTag} · ${t.widget_count} widgets
+          ${typeBadge}${schemaBadge}
+          ${t.canvas_width}×${t.canvas_height} · ${t.widget_count} widgets
         </div>
-        <div class="actions">
-          <button class="btn btn-primary" data-action="activate">${isActive ? 'Restart' : 'Activate'}</button>
-        </div>
+        <div class="actions">${btn}</div>
       </div>
     `;
   }).join('');
@@ -102,7 +124,6 @@ function renderThemes() {
           body: JSON.stringify({dir_name: dir, params: readParams()}),
         });
         await refreshStatus();
-        // Re-render cards so the active state moves to this card
         renderThemes();
       } catch (err) {
         alert('Start failed: ' + err.message);
@@ -128,7 +149,6 @@ async function refreshStatus() {
     console.warn('status fetch failed', err);
     return;
   }
-  // Header status
   if (lastStatus.running) {
     els.statusRunning.textContent = 'Running';
     els.statusRunning.className = 'badge running';
@@ -147,12 +167,13 @@ async function refreshStatus() {
     els.statusMeta.textContent = '';
     els.stopBtn.disabled = true;
   }
-  // Sync params display (from server) — first time only
+  if (typeof lastStatus.process_rss_mb === 'number') {
+    els.footerMemory.textContent = `memory: ${lastStatus.process_rss_mb.toFixed(1)} MB RSS`;
+  }
   if (!els.fontScale.dataset.synced) {
     writeParams(lastStatus.params);
     els.fontScale.dataset.synced = '1';
   }
-  // If the active theme changed, re-render cards so the badge moves
   if (prevActive !== lastStatus.active_theme && themesCache.length) {
     renderThemes();
   }
@@ -170,14 +191,22 @@ els.stopBtn.addEventListener('click', async () => {
   try {
     await fetchJSON('/api/stop', {method: 'POST'});
     await refreshStatus();
-    renderThemes(); // remove active badge
+    renderThemes();
   } catch (err) {
     alert('Stop failed: ' + err.message);
-    els.stopBtn.disabled = false; // re-enable so user can try again
+    els.stopBtn.disabled = false;
   }
 });
 
-// initial load + 2s polling for status
+// filter buttons
+els.filterBar.addEventListener('click', (e) => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  $$('.filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+  currentFilter = btn.dataset.filter;
+  renderThemes();
+});
+
 (async () => {
   await refreshStatus();
   await refreshThemes();
