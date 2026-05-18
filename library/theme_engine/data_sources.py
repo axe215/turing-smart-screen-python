@@ -307,11 +307,32 @@ def _ram_used_gb():
 
 
 _NET_LAST: Dict[str, tuple] = {}
+# Network interface to read counters from. None = aggregate of all
+# interfaces (psutil default). Set via set_net_interface().
+_NET_INTERFACE: Optional[str] = None
+
+
+def set_net_interface(name: Optional[str]) -> None:
+    """Restrict net_upload / net_download to a single interface (e.g.
+    "Ethernet 7"). Pass None to aggregate all interfaces."""
+    global _NET_INTERFACE, _NET_LAST
+    _NET_INTERFACE = name or None
+    _NET_LAST = {}  # reset baseline so the next reading isn't a huge spike
+    log.info("net interface = %s", _NET_INTERFACE or "(aggregate)")
 
 
 def _net_rate(direction: str) -> float:
     now = time.monotonic()
-    counters = psutil.net_io_counters(pernic=False)
+    if _NET_INTERFACE:
+        try:
+            per = psutil.net_io_counters(pernic=True)
+            counters = per.get(_NET_INTERFACE)
+        except Exception:
+            counters = None
+        if counters is None:
+            return 0.0
+    else:
+        counters = psutil.net_io_counters(pernic=False)
     cur = counters.bytes_sent if direction == "up" else counters.bytes_recv
     prev = _NET_LAST.get(direction, (now, cur))
     dt = now - prev[0]

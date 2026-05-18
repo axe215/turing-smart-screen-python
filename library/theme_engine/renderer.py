@@ -296,10 +296,17 @@ class WidgetRenderer:
         val = self.sources.get_numeric(w.source)
         hist.append(val if val is not None else 0.0)
 
-        # Colors (with sensible defaults that match the .turtheme style)
+        # Colors. Unified with the text-style choice: BLACK fill with
+        # a thin WHITE outline, so each bar is clearly visible against
+        # any video frame underneath.
         border_c = tuple(w.border_color) if w.border_color else (255, 255, 255, 255)
         bg_c = tuple(w.fill_color) if w.fill_color else (0, 0, 0, 40)
-        bar_c = tuple(w.line_color) if w.line_color else (255, 255, 255, 255)
+        bar_fill = tuple(w.raw["bar_color"]) if "bar_color" in w.raw else (0, 0, 0, 255)
+        bar_stroke = (
+            tuple(w.raw["bar_stroke_color"])
+            if "bar_stroke_color" in w.raw
+            else (255, 255, 255, 255)
+        )
 
         x0, y0 = w.x, w.y
         x1, y1 = w.x + w.width, w.y + w.height
@@ -318,9 +325,14 @@ class WidgetRenderer:
             if bar_h <= 0:
                 continue
             bar_top = y1 - bar_h
+            # Black fill + 1px white outline. column_width is usually 5,
+            # so the outline visually frames each bar without consuming
+            # too much of the column.
             draw.rectangle(
                 [bar_x, bar_top, bar_x + column_width - 1, y1 - 1],
-                fill=bar_c,
+                fill=bar_fill,
+                outline=bar_stroke,
+                width=1,
             )
 
         # Border on top so bars don't bleed past the frame
