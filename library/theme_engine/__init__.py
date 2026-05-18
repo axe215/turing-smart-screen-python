@@ -34,6 +34,15 @@ def __getattr__(name):  # PEP 562
     if name == "ThemeEngine":
         from .engine import ThemeEngine
         return ThemeEngine
+    if name == "ThemeManager":
+        from .manager import ThemeManager
+        return ThemeManager
+    if name == "EngineParams":
+        from .manager import EngineParams
+        return EngineParams
+    if name == "ThemeInfo":
+        from .manager import ThemeInfo
+        return ThemeInfo
     raise AttributeError(f"module {__name__} has no attribute {name}")
 
 
