@@ -167,6 +167,12 @@ class WidgetRenderer:
             self._render_image(canvas, w)
         elif w.type == "chart":
             self._render_chart(draw, w)
+        elif w.type == "progress_bar":
+            self._render_progress_bar(draw, w)
+        elif w.type == "radial":
+            self._render_radial(canvas, draw, w)
+        elif w.type == "line_graph":
+            self._render_line_graph(draw, w)
         else:
             log.debug("Skipping widget %s (unknown type %s)", w.id, w.type)
 
@@ -382,6 +388,193 @@ class WidgetRenderer:
                 outline=border_c,
                 width=int(w.border_width),
             )
+
+    # ------------------------------------------------------------------
+    # Upstream-flavored widgets: progress_bar / radial / line_graph
+    # ------------------------------------------------------------------
+
+    def _render_progress_bar(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
+        """Horizontal bar: background rect + filled portion proportional
+        to (value − min) / (max − min). Mirrors upstream GRAPH semantics
+        — including REVERSE_DIRECTION (fill grows right→left)."""
+        if w.width <= 0 or w.height <= 0:
+            return
+        min_v = float(w.raw.get("min_value", 0))
+        max_v = float(w.raw.get("max_value", 100))
+        span = max_v - min_v
+        if span <= 0:
+            return
+        val = self.sources.get_numeric(w.source)
+        if val is None:
+            val = min_v
+        norm = max(0.0, min(1.0, (float(val) - min_v) / span))
+        reverse = bool(w.raw.get("reverse_direction", False))
+
+        x0, y0 = w.x, w.y
+        x1, y1 = w.x + w.width, w.y + w.height
+
+        bg = w.raw.get("background_color")
+        if bg:
+            draw.rectangle([x0, y0, x1, y1], fill=tuple(bg))
+
+        bar_c = tuple(w.raw.get("bar_color", (0, 255, 0, 255)))
+        fill_px = int(round(norm * w.width))
+        if fill_px > 0:
+            if reverse:
+                draw.rectangle([x1 - fill_px, y0, x1, y1], fill=bar_c)
+            else:
+                draw.rectangle([x0, y0, x0 + fill_px, y1], fill=bar_c)
+
+        if w.raw.get("bar_outline"):
+            draw.rectangle([x0, y0, x1, y1], outline=bar_c, width=1)
+
+    def _render_radial(self, canvas: Image.Image, draw: ImageDraw.ImageDraw, w: WidgetSpec):
+        """Radial progress dial. Center at (x, y), arc swept from
+        ANGLE_START to ANGLE_END based on value%.
+
+        Upstream uses standard math angle convention (0° east, CCW), but
+        Pillow's ImageDraw.arc uses 0° east, clockwise. CLOCKWISE: True
+        in the theme means "fill builds clockwise from start" — we
+        translate by swapping start/end when CLOCKWISE is False.
+        """
+        radius = int(w.raw.get("radius", 0))
+        if radius <= 0:
+            return
+        min_v = float(w.raw.get("min_value", 0))
+        max_v = float(w.raw.get("max_value", 100))
+        span = max_v - min_v
+        if span <= 0:
+            return
+        val = self.sources.get_numeric(w.source)
+        if val is None:
+            val = min_v
+        norm = max(0.0, min(1.0, (float(val) - min_v) / span))
+
+        cx, cy = w.x, w.y
+        thickness = max(1, int(w.raw.get("width", 10)))
+        a_start = float(w.raw.get("angle_start", 0.0))
+        a_end = float(w.raw.get("angle_end", 360.0))
+        clockwise = bool(w.raw.get("clockwise", True))
+
+        # Compute total sweep based on direction. Pillow draws arcs CW.
+        if clockwise:
+            sweep = (a_end - a_start) % 360
+            if sweep == 0:
+                sweep = 360
+            filled_end = a_start + sweep * norm
+            arc_start, arc_end = a_start, filled_end
+        else:
+            sweep = (a_start - a_end) % 360
+            if sweep == 0:
+                sweep = 360
+            filled_end = a_start - sweep * norm
+            arc_start, arc_end = filled_end, a_start
+
+        bbox = [cx - radius, cy - radius, cx + radius, cy + radius]
+        bar_c = tuple(w.raw.get("bar_color", (0, 255, 0, 255)))
+        try:
+            draw.arc(bbox, start=arc_start, end=arc_end, fill=bar_c, width=thickness)
+        except TypeError:
+            # Older Pillow without `width` kwarg — fall back to thin arc
+            draw.arc(bbox, start=arc_start, end=arc_end, fill=bar_c)
+
+        if w.raw.get("show_text"):
+            # Centered numeric readout
+            show_unit = bool(w.raw.get("show_unit", False))
+            fn = self.sources.get(w.source)
+            try:
+                value_part, unit_part = fn(show_unit)
+            except Exception:
+                value_part, unit_part = (str(int(val)), "")
+            label = (value_part + unit_part) if show_unit else value_part
+            if label:
+                font = self._load_font(w.font)
+                # Measure to center the label
+                try:
+                    tw = draw.textlength(label, font=font)
+                except AttributeError:
+                    bb = draw.textbbox((0, 0), label, font=font)
+                    tw = bb[2] - bb[0]
+                try:
+                    bb = draw.textbbox((0, 0), label, font=font)
+                    th = bb[3] - bb[1]
+                except AttributeError:
+                    th = font.size if hasattr(font, "size") else 12
+                fill = w.font.color if (w.font is not None and not self.force_black_text) else (
+                    (0, 0, 0, 255) if self.force_black_text else (255, 255, 255, 255)
+                )
+                draw.text((cx - tw / 2, cy - th / 2), label, font=font, fill=fill)
+
+    def _render_line_graph(self, draw: ImageDraw.ImageDraw, w: WidgetSpec):
+        """Line plot of rolling samples. History deque keyed by widget id.
+
+        Maps the y-axis: sample value → pixel y inside [w.y, w.y+h].
+        autoscale=True picks min/max from current history (excluding
+        empty); otherwise uses the theme-supplied MIN_VALUE/MAX_VALUE.
+        """
+        if w.width <= 0 or w.height <= 0:
+            return
+        history_size = max(2, int(w.raw.get("history_size", 60)))
+        hist = self.chart_history.get(w.id)
+        if hist is None or hist.maxlen != history_size:
+            hist = deque(maxlen=history_size)
+            self.chart_history[w.id] = hist
+        val = self.sources.get_numeric(w.source)
+        hist.append(float(val) if val is not None else 0.0)
+
+        x0, y0 = w.x, w.y
+        x1, y1 = w.x + w.width, w.y + w.height
+
+        bg = w.raw.get("background_color")
+        if bg:
+            draw.rectangle([x0, y0, x1, y1], fill=tuple(bg))
+
+        if w.raw.get("autoscale"):
+            samples = list(hist)
+            if samples:
+                min_v, max_v = min(samples), max(samples)
+                if max_v - min_v < 1e-6:
+                    max_v = min_v + 1
+            else:
+                min_v, max_v = 0.0, 1.0
+        else:
+            min_v = float(w.raw.get("min_value", 0))
+            max_v = float(w.raw.get("max_value", 100))
+            if max_v - min_v < 1e-6:
+                max_v = min_v + 1
+
+        # Plot polyline. With N samples in history, lay them across the
+        # full width. Newest sample on the right.
+        n = len(hist)
+        if n >= 2:
+            line_c = tuple(w.raw.get("line_color", (255, 255, 255, 255)))
+            line_w = max(1, int(w.raw.get("line_width", 1)))
+            pts = []
+            for i, s in enumerate(hist):
+                # left-to-right: oldest at x0, newest at x1
+                px = x0 + (w.width * i) / (history_size - 1) if history_size > 1 else x0
+                norm = (float(s) - min_v) / (max_v - min_v)
+                norm = max(0.0, min(1.0, norm))
+                py = y1 - norm * w.height
+                pts.append((px, py))
+            try:
+                draw.line(pts, fill=line_c, width=line_w, joint="curve")
+            except TypeError:
+                draw.line(pts, fill=line_c, width=line_w)
+
+        if w.raw.get("axis"):
+            axis_c = tuple(w.raw.get("axis_color", (255, 255, 255, 255)))
+            # Bottom + left axes
+            draw.line([(x0, y1), (x1, y1)], fill=axis_c, width=1)
+            draw.line([(x0, y0), (x0, y1)], fill=axis_c, width=1)
+            axis_font_spec = w.raw.get("axis_font") or {}
+            if axis_font_spec:
+                from .runtime import FontSpec
+                fs = FontSpec.from_dict(axis_font_spec)
+                font = self._load_font(fs)
+                # Min label at bottom-left, max label at top-left (just inside the axis)
+                draw.text((x0 + 2, y1 - 12), f"{int(min_v)}", font=font, fill=axis_c)
+                draw.text((x0 + 2, y0 + 2), f"{int(max_v)}", font=font, fill=axis_c)
 
     # ------------------------------------------------------------------
     # Font loading
