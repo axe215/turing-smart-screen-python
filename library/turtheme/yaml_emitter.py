@@ -136,7 +136,7 @@ def _widget_to_dict(
     used_ids: set,
     image_rename_map: Optional[Dict[str, str]] = None,
     net_chart_max: float = 150.0,
-    chart_column_width: int = 8,
+    chart_column_width: int = 10,
 ) -> Optional[Dict[str, Any]]:
     # Generate a unique id by adding a numeric suffix on collision
     base_id = slug_id(w.display_name, f"widget_{idx}")
@@ -250,7 +250,7 @@ def to_yaml_dict(
     video_filename: Optional[str],
     image_rename_map: Optional[Dict[str, str]] = None,
     net_chart_max: float = 150.0,
-    chart_column_width: int = 8,
+    chart_column_width: int = 10,
 ) -> Dict[str, Any]:
     """Build the YAML-ready dict from a ThemeDef.
 
@@ -319,7 +319,7 @@ def export_theme_dir(
     fonts_src: Optional[Path] = None,
     write_bitmaps: bool = True,
     net_chart_max: float = 150.0,
-    chart_column_width: int = 8,
+    chart_column_width: int = 10,
 ) -> Path:
     """Write a complete theme directory: theme.yaml + video/ + images/ + fonts/.
 

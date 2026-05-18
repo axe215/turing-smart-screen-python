@@ -170,7 +170,7 @@ def main() -> int:
     p.add_argument(
         "--chart-column-width",
         type=int,
-        default=8,
+        default=10,
         metavar="PX",
         help=(
             "Width of each chart bar in pixels (default 8). UsbMonitorL "
