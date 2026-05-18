@@ -23,6 +23,20 @@ let themesCache = [];
 let lastStatus = null;
 let currentFilter = 'all';
 
+// Per-theme preview rotation, persisted in localStorage so the user's
+// preferred orientation for each card survives reloads. Map: dir_name → deg.
+const PREVIEW_ROT_KEY = 'preview_rotations_v1';
+function loadPreviewRotations() {
+  try { return JSON.parse(localStorage.getItem(PREVIEW_ROT_KEY)) || {}; }
+  catch { return {}; }
+}
+function savePreviewRotations(map) {
+  try { localStorage.setItem(PREVIEW_ROT_KEY, JSON.stringify(map)); } catch {}
+}
+let previewRotations = loadPreviewRotations();
+
+function nextRotation(deg) { return (deg + 90) % 360; }
+
 function readParams() {
   return {
     rotate_180: els.rotate180.checked,
@@ -85,9 +99,6 @@ function renderThemes() {
   }
   els.themeGrid.innerHTML = visible.map(t => {
     const isActive = t.dir_name === activeDir;
-    const preview = t.preview_url
-      ? `<img src="${t.preview_url}" alt="${escapeHTML(t.name)}">`
-      : `<span>${bgTypeIcon(t.background_type)}</span>`;
     const activeBadge = isActive ? '<div class="active-badge">ACTIVE</div>' : '';
     const typeBadge = `<span class="type-badge ${t.background_type}">${bgTypeIcon(t.background_type)} ${t.background_type}</span>`;
     const schemaBadge = t.runnable
@@ -96,10 +107,25 @@ function renderThemes() {
     const btn = t.runnable
       ? `<button class="btn btn-primary" data-action="activate">${isActive ? 'Restart' : 'Activate'}</button>`
       : `<button class="btn" disabled title="Upstream schema — run via main.py">Read-only</button>`;
+    // Per-card preview rotation: applied client-side, persisted to localStorage.
+    const rot = previewRotations[t.dir_name] | 0;
+    const imgClass = rot ? ` class="rot-${rot}"` : '';
+    const imgStyle = rot ? ` style="transform: rotate(${rot}deg);"` : '';
+    const previewImg = t.preview_url
+      ? `<img src="${t.preview_url}" alt="${escapeHTML(t.name)}"${imgClass}${imgStyle}>`
+      : `<span>${bgTypeIcon(t.background_type)}</span>`;
+    const rotateBtn = t.preview_url
+      ? `<button class="preview-rotate" data-action="rotate-preview" title="Повернуть превью">↻</button>`
+      : '';
+    const rotLabel = rot ? `<div class="preview-rotate-label">${rot}°</div>` : '<div class="preview-rotate-label"></div>';
     return `
       <div class="theme-card${isActive ? ' active' : ''}${t.runnable ? '' : ' disabled'}" data-dir="${escapeHTML(t.dir_name)}">
         ${activeBadge}
-        <div class="preview">${preview}</div>
+        <div class="preview">
+          ${previewImg}
+          ${rotLabel}
+          ${rotateBtn}
+        </div>
         <div class="name">${escapeHTML(t.name)} <span class="meta">/${escapeHTML(t.dir_name)}</span></div>
         <div class="info">
           ${typeBadge}${schemaBadge}
@@ -131,6 +157,30 @@ function renderThemes() {
         btn.disabled = false;
         btn.textContent = prev;
       }
+    });
+  });
+
+  // Preview rotation cycle button (per-card, persists in localStorage)
+  $$('[data-action="rotate-preview"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = e.target.closest('.theme-card');
+      const dir = card.dataset.dir;
+      const cur = previewRotations[dir] | 0;
+      const next = nextRotation(cur);
+      if (next === 0) delete previewRotations[dir];
+      else previewRotations[dir] = next;
+      savePreviewRotations(previewRotations);
+      // In-place update — no full re-render needed
+      const img = card.querySelector('.preview img');
+      const label = card.querySelector('.preview-rotate-label');
+      if (img) {
+        img.style.transform = next ? `rotate(${next}deg)` : '';
+        // Swap rotation-specific size class (90/270 vs 0/180)
+        img.classList.remove('rot-90', 'rot-180', 'rot-270');
+        if (next) img.classList.add(`rot-${next}`);
+      }
+      if (label) label.textContent = next ? `${next}°` : '';
     });
   });
 }

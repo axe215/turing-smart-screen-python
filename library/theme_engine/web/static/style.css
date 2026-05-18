@@ -335,6 +335,7 @@ footer code {
   /* Fixed preview tray — first frame goes inside in its native aspect,
      no stretching, no cropping. Portrait themes show narrow; landscape
      fill the width. Honest about what the asset actually looks like. */
+  position: relative;
   width: 100%;
   height: 180px;
   background: linear-gradient(135deg, #000 0%, #1a1d24 100%);
@@ -353,7 +354,59 @@ footer code {
   max-height: 100%;
   object-fit: contain;     /* show the whole frame, never crop or stretch */
   image-rendering: high-quality;
+  transition: transform 0.25s ease;
+  transform-origin: center center;
 }
+
+/* When the preview is rotated 90 or 270 deg, the rotated content's
+   "wide" dimension fits the tray's HEIGHT (180px), but visually the
+   transform keeps the original bounding box. To make rotated content
+   look reasonable we scale based on container aspect. */
+.theme-card .preview img.rot-90,
+.theme-card .preview img.rot-270 {
+  /* Heuristic: rotated portrait fills landscape tray width */
+  max-width: 180px;
+  max-height: 100%;
+}
+
+.theme-card .preview-rotate {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  z-index: 2;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+.theme-card .preview-rotate:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.85);
+}
+.theme-card .preview-rotate-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 1px 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--muted);
+  border-radius: 99px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  z-index: 1;
+  pointer-events: none;
+}
+.theme-card .preview-rotate-label:empty { display: none; }
 
 .theme-card .name {
   font-weight: 600;
