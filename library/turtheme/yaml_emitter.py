@@ -135,6 +135,7 @@ def _widget_to_dict(
     idx: int,
     used_ids: set,
     image_rename_map: Optional[Dict[str, str]] = None,
+    net_chart_max: float = 500.0,
 ) -> Optional[Dict[str, Any]]:
     # Generate a unique id by adding a numeric suffix on collision
     base_id = slug_id(w.display_name, f"widget_{idx}")
@@ -186,10 +187,19 @@ def _widget_to_dict(
         base["type"] = "chart"
         base["width"] = int(w.width)
         base["height"] = int(w.height)
+        source_normalized = ""
         if w.data_name:
             base["legacy_source"] = w.data_name
-            base["source"] = normalize_source(w.data_name)
-        base["max_value"] = float(w.max_value)
+            source_normalized = normalize_source(w.data_name)
+            base["source"] = source_normalized
+        # Network charts: UsbMonitorL themes pin max_value at 100 which
+        # was probably their author's bandwidth ceiling. For our users
+        # (modern home internet, often gigabit) that's pegged at the
+        # top constantly. Replace with `net_chart_max` (default 500 Mbps).
+        if source_normalized in ("net_upload", "net_download"):
+            base["max_value"] = float(net_chart_max)
+        else:
+            base["max_value"] = float(w.max_value)
         line = _color_to_list(w.line_color)
         if line is not None:
             base["line_color"] = line
@@ -237,6 +247,7 @@ def to_yaml_dict(
     theme: ThemeDef,
     video_filename: Optional[str],
     image_rename_map: Optional[Dict[str, str]] = None,
+    net_chart_max: float = 500.0,
 ) -> Dict[str, Any]:
     """Build the YAML-ready dict from a ThemeDef.
 
@@ -272,7 +283,11 @@ def to_yaml_dict(
     widgets_out: List[Dict[str, Any]] = []
     used_ids: set = set()
     for i, w in enumerate(theme.widgets):
-        d = _widget_to_dict(w, i, used_ids, image_rename_map=image_rename_map)
+        d = _widget_to_dict(
+            w, i, used_ids,
+            image_rename_map=image_rename_map,
+            net_chart_max=net_chart_max,
+        )
         if d is not None:
             widgets_out.append(d)
     out["widgets"] = widgets_out
@@ -299,6 +314,7 @@ def export_theme_dir(
     video_src: Optional[Path] = None,
     fonts_src: Optional[Path] = None,
     write_bitmaps: bool = True,
+    net_chart_max: float = 500.0,
 ) -> Path:
     """Write a complete theme directory: theme.yaml + video/ + images/ + fonts/.
 
@@ -373,7 +389,12 @@ def export_theme_dir(
                 image_rename_map[original_name] = actual_name
 
     # ---- yaml ----
-    data = to_yaml_dict(theme, video_filename=video_filename, image_rename_map=image_rename_map)
+    data = to_yaml_dict(
+        theme,
+        video_filename=video_filename,
+        image_rename_map=image_rename_map,
+        net_chart_max=net_chart_max,
+    )
     yaml_path = out_dir / "theme.yaml"
     with open(yaml_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True, width=120)

@@ -156,6 +156,17 @@ def main() -> int:
         metavar="DIR",
         help="Source fonts directory to copy into <OUT_DIR>/fonts/ (used with --emit-theme)",
     )
+    p.add_argument(
+        "--chart-net-max",
+        type=float,
+        default=500.0,
+        metavar="MBPS",
+        help=(
+            "max_value (Mbps) for network charts (net_upload / net_download). "
+            "Default 500. UsbMonitorL themes ship max_value=100 which pegs at "
+            "the top on modern home internet — override here when emitting."
+        ),
+    )
     args = p.parse_args()
 
     in_path = Path(args.turtheme).expanduser().resolve()
@@ -171,7 +182,12 @@ def main() -> int:
     if args.emit_theme:
         out_dir = args.emit_theme.expanduser().resolve()
         print(f"\nEmitting theme directory to {out_dir} ...")
-        export_theme_dir(theme, out_dir, video_src=args.video_src, fonts_src=args.fonts_src)
+        export_theme_dir(
+            theme, out_dir,
+            video_src=args.video_src,
+            fonts_src=args.fonts_src,
+            net_chart_max=args.chart_net_max,
+        )
         print(f"  done. Layout:")
         for p in sorted(out_dir.rglob("*")):
             rel = p.relative_to(out_dir)
