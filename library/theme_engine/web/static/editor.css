@@ -28,15 +28,30 @@
   background: #2a2a2a;
 }
 .editor-header .brand:hover { background: #3a3a3a; }
+.editor-header .title {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
 .editor-header .title h1 {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60ch;
 }
 .editor-header .title .meta {
   font-size: 0.78rem;
   color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  max-width: 60ch;
 }
+.editor-actions { flex-shrink: 0; }
 .editor-actions {
   margin-left: auto;
   display: flex;
@@ -75,6 +90,8 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
+  border-left: 2px solid transparent;  /* reserve space so .selected doesn't shift the row */
+  padding-left: 6px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.85rem;
@@ -82,8 +99,7 @@
 .widget-list-item:hover { background: #2a2a2a; }
 .widget-list-item.selected {
   background: rgba(111, 196, 111, 0.18);
-  border-left: 2px solid #6fc46f;
-  padding-left: 6px;
+  border-left-color: #6fc46f;
 }
 .widget-list-item .dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
@@ -98,7 +114,10 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 12px;
+  /* extra top padding so widget labels (positioned at top:-16px above
+   * their box) don't get clipped for widgets that sit near y=0 on the
+   * design canvas. */
+  padding: 28px 12px 12px;
   overflow: auto;
 }
 .canvas-stage {
@@ -114,6 +133,9 @@
   border: 1px solid #444;
   box-shadow: 0 0 0 1px #000, 0 0 30px rgba(0, 0, 0, 0.6);
   background: #222;
+  /* Widget labels are positioned at top:-16px above the box;
+   * overflow:visible lets them render outside the canvas frame. */
+  overflow: visible;
 }
 .canvas-hint {
   font-size: 0.72rem;
@@ -187,25 +209,38 @@
 }
 .properties-panel input[data-empty="1"] { opacity: 0.4; }
 .properties-panel .flash-err { border-color: #c0533c; background: #3a1a14; }
-.properties-panel .hint, .properties-panel small.hint { display: block; margin-top: 2px; font-size: 0.7rem; color: #777; }
+.properties-panel .hint, .properties-panel small.hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  color: #777;
+  word-break: break-word;
+  line-height: 1.6;
+}
+.properties-panel .hint kbd { white-space: nowrap; }
 .prop-row {
   display: grid;
-  grid-template-columns: 90px 1fr;
+  grid-template-columns: 90px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   padding: 4px 0;
   font-size: 0.82rem;
 }
-.prop-row > label { color: #aaa; }
-.prop-row > span { display: block; }
+.prop-row > label { color: #aaa; overflow-wrap: anywhere; }
+.prop-row > span { display: block; min-width: 0; }
 .prop-grid { display: block; }
-.color-row { display: inline-flex; align-items: center; gap: 6px; }
+/* flex-wrap lets the color picker + alpha + clear button wrap to a
+ * second line on the narrow right sidebar instead of overflowing. */
+.color-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; }
+.color-row input[type="number"] { width: 64px; flex-shrink: 0; }
+.color-row input[type="color"] { flex-shrink: 0; }
 .color-row .micro {
   font-size: 12px; line-height: 1;
-  width: 20px; height: 20px;
+  width: 22px; height: 22px;
   background: #2a2a2a; color: #ccc;
   border: 1px solid #444; border-radius: 3px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 .color-row .micro:hover { background: #3a3a3a; }
 .prop-buttons {
@@ -222,31 +257,48 @@
   display: flex;
   gap: 6px;
   margin-bottom: 8px;
+  align-items: stretch;
 }
 .add-widget-row select {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   background: #0e0e0e;
   color: #eee;
   border: 1px solid #333;
-  padding: 4px;
+  padding: 4px 6px;
   border-radius: 3px;
   font-size: 0.82rem;
+}
+.add-widget-row .btn {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  white-space: nowrap;
 }
 
 .widget-box.is-hidden { opacity: 0.3; border-style: dotted; }
 .widget-box.is-disabled { opacity: 0.4; filter: grayscale(1); }
 
-/* Canvas size editor in left sidebar */
+/* Canvas size editor in left sidebar — grid keeps W/H inputs equal
+ * width and Apply on the right; nothing overflows the 240px sidebar. */
 .canvas-meta-row {
-  display: flex; gap: 6px; align-items: center; margin-bottom: 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
 }
 .canvas-meta-row label {
   display: flex; align-items: center; gap: 4px; font-size: 0.78rem; color: #aaa;
+  min-width: 0;
 }
+.canvas-meta-row label > span { flex-shrink: 0; }
 .canvas-meta-row input[type="number"] {
-  width: 70px; background: #0e0e0e; color: #eee; border: 1px solid #333;
+  width: 100%;
+  min-width: 0;
+  background: #0e0e0e; color: #eee; border: 1px solid #333;
   padding: 3px 5px; border-radius: 3px; font-size: 0.82rem;
 }
+.canvas-meta-row .btn { padding: 4px 10px; }
 
 /* Required-fonts panel */
 .required-fonts {
@@ -257,11 +309,21 @@
 .required-fonts .rf-row {
   display: flex; gap: 6px; align-items: center;
   padding: 2px 0;
+  min-width: 0;
 }
-.required-fonts .rf-status { width: 14px; text-align: center; font-weight: bold; }
+.required-fonts .rf-status { width: 14px; text-align: center; font-weight: bold; flex-shrink: 0; }
 .required-fonts .rf-row.ok .rf-status { color: #6fc46f; }
 .required-fonts .rf-row.bad .rf-status { color: #c0533c; }
-.required-fonts .rf-name { color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* min-width:0 + flex:1 is what enables text-overflow inside a flex child.
+ * Without it the name grows past the sidebar instead of truncating. */
+.required-fonts .rf-name {
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 0;
+  min-width: 0;
+}
 .required-fonts .rf-row.bad .rf-name { color: #e8a8a0; }
 .status-ok { color: #6fc46f; }
 .status-bad { color: #c0533c; }
@@ -356,11 +418,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;          /* button row drops below the label on narrow screens */
   padding: 8px 14px;
   background: #2a2a2a;
   font-size: 0.85rem;
   color: #ddd;
 }
+.preview-modal-bar > div { display: flex; gap: 6px; flex-shrink: 0; }
+.preview-modal-bar > span { flex: 1 1 200px; min-width: 0; }
 .preview-modal img {
   max-width: 90vw;
   max-height: 80vh;
