@@ -70,6 +70,7 @@ def create_app(manager: ThemeManager) -> Flask:
             widget_period=float(params_in.get("widget_period", cur.widget_period)),
             screen=str(params_in.get("screen", cur.screen)),
             force_black_text=bool(params_in.get("force_black_text", cur.force_black_text)),
+            brightness=int(params_in.get("brightness", cur.brightness)),
         )
         try:
             manager.start(dir_name, params=params)
