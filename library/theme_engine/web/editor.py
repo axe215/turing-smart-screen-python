@@ -42,6 +42,7 @@ from flask import abort, jsonify, render_template, request, send_file
 from ..data_sources import DataSourceRegistry, DEFAULT_SOURCES
 from ..renderer import WidgetRenderer
 from ..runtime import build_runtime
+from ..upstream_adapter import upstream_to_axe215_dict
 
 log = logging.getLogger(__name__)
 
@@ -395,15 +396,15 @@ def register_editor_routes(app, manager) -> None:
     def api_theme_clone(dir_name: str):
         """Clone an existing theme directory under a new name.
 
-        Body: {new_name, dir_name?}
-        Currently only clones axe215_v1 themes (Phase 6d will add the
-        upstream → axe215_v1 conversion path).
+        For axe215_v1: full directory copy + rename internal name.
+        For upstream (mathoudebine): convert via upstream_to_axe215_dict
+        and emit a fresh axe215_v1 theme dir. Background asset is copied
+        in; fonts stay referenced by their absolute paths (Phase 6e will
+        turn this into a portable required_fonts list).
         """
         info = manager.get_theme(dir_name)
         if info is None:
             abort(404)
-        if info.schema != "axe215_v1":
-            return jsonify({"error": "upstream theme cloning lives in Phase 6d"}), 409
         body = request.get_json(silent=True) or {}
         new_name = str(body.get("new_name") or "").strip()
         if not new_name:
@@ -411,28 +412,48 @@ def register_editor_routes(app, manager) -> None:
         base = body.get("dir_name") or _safe_dir_name(new_name)
         target = _unique_theme_dir(manager.themes_dir, base)
         src_dir = info.yaml_path.parent
+
         try:
-            shutil.copytree(src_dir, target)
-        except OSError as exc:
-            log.exception("clone copy failed: %s → %s", src_dir, target)
-            return jsonify({"error": str(exc)}), 500
-        # Update the cloned theme's display name
-        try:
-            data = _read_yaml(target / "theme.yaml")
+            if info.schema == "axe215_v1":
+                shutil.copytree(src_dir, target)
+                data = _read_yaml(target / "theme.yaml")
+            else:
+                # Upstream → axe215_v1 conversion
+                target.mkdir(parents=True, exist_ok=False)
+                upstream_data = _read_yaml(info.yaml_path)
+                data = upstream_to_axe215_dict(upstream_data, src_dir)
+                # Copy background image into target dir so the theme is
+                # self-contained (apart from font files).
+                if data.get("image", {}).get("path"):
+                    bg_rel = data["image"]["path"]
+                    src_bg = (src_dir / bg_rel).resolve()
+                    if src_bg.exists():
+                        out_name = "background" + src_bg.suffix.lower()
+                        shutil.copy2(src_bg, target / out_name)
+                        data["image"]["path"] = out_name
+                # Copy hand-supplied preview.png if present (nice-to-have)
+                src_preview = src_dir / "preview.png"
+                if src_preview.exists():
+                    shutil.copy2(src_preview, target / "preview.png")
+            # Common rename + stamp
             data["name"] = new_name
             data["editor_version"] = 1
             data["editor_last_saved"] = datetime.now().isoformat(timespec="seconds")
-            # Drop any stale .cache from the source — preview will regenerate
+            # Drop any stale .cache so previews regenerate
             cache = target / ".cache"
             if cache.exists():
                 shutil.rmtree(cache, ignore_errors=True)
             _atomic_write_yaml(target / "theme.yaml", data)
         except Exception as exc:
-            log.exception("clone rename failed")
+            log.exception("clone failed: %s → %s", src_dir, target)
+            # Roll back the target dir if we made one
+            if target.exists() and target != src_dir:
+                shutil.rmtree(target, ignore_errors=True)
             return jsonify({"error": str(exc)}), 500
         return jsonify({
             "dir_name": target.name,
             "editor_url": f"/editor/{target.name}",
+            "source_schema": info.schema,
         })
 
     @app.route("/api/themes/<dir_name>/upload", methods=["POST"])

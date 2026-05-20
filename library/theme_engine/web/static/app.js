@@ -178,9 +178,12 @@ function renderThemes() {
       : `<button class="btn" disabled title="Unsupported schema">Read-only</button>`;
     // Edit button: opens the editor in a new tab. Upstream themes get a
     // disabled tooltip — Phase 6d will add the clone-to-edit flow.
+    // Upstream themes can't be edited in place — Clone & Edit converts
+    // them to axe215_v1 first. Native (axe215_v1) themes get a direct
+    // "Edit" link plus a "Clone" duplicator.
     const editBtn = t.schema === 'axe215_v1'
       ? `<a class="btn" href="/editor/${encodeURIComponent(t.dir_name)}" target="_blank" rel="noopener" title="Открыть тему в редакторе">Edit</a>`
-      : `<button class="btn" disabled title="Upstream theme — Phase 6d добавит «Clone & edit»">Edit</button>`;
+      : `<button class="btn" data-action="clone" title="Сконвертировать в наш axe215_v1 формат и открыть в редакторе">Clone &amp; Edit</button>`;
     const cloneBtn = t.schema === 'axe215_v1'
       ? `<button class="btn" data-action="clone" title="Сделать редактируемую копию темы">Clone</button>`
       : '';
