@@ -23,7 +23,11 @@
 <main class="editor-main">
   <aside class="editor-left">
     <h2>Widgets</h2>
-    <p class="hint">Перетаскивай рамку виджета мышкой, чтобы поменять X/Y. Phase 6a — только перемещение; редактирование шрифтов/источников появится в 6b.</p>
+    <div class="add-widget-row">
+      <select id="add-widget-type"></select>
+      <button id="add-widget-btn" class="btn btn-primary">+ Add</button>
+    </div>
+    <p class="hint">Перетаскивай рамку мышкой на холсте. Свойства — в правой панели.</p>
     <ul id="widget-list" class="widget-list"></ul>
   </aside>
 

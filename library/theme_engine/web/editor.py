@@ -27,11 +27,13 @@ from __future__ import annotations
 
 import io
 import logging
+import os
+import platform
 import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 from flask import abort, jsonify, render_template, request, send_file
@@ -41,6 +43,80 @@ from ..renderer import WidgetRenderer
 from ..runtime import build_runtime
 
 log = logging.getLogger(__name__)
+
+
+# Process-wide font cache. Building it scans every .ttf/.otf in the
+# themes/upstream/Windows fonts roots and reads the name table via
+# Pillow — expensive enough (a few seconds on Win11) that we want to
+# pay it once. Invalidated only on process restart.
+_FONT_CACHE: Optional[List[Dict[str, str]]] = None
+
+
+def _font_roots(themes_dir: Path) -> List[Tuple[str, Path]]:
+    """Return ordered (origin_label, path) roots to scan for fonts.
+
+    Themes take precedence over the upstream bundle, which takes
+    precedence over the system fonts directory. The label is shown in
+    the UI so the user knows where a font comes from (some Windows-only
+    fonts won't survive moving the theme to another PC).
+    """
+    repo_root = themes_dir.parent.parent  # res/themes → repo/
+    roots: List[Tuple[str, Path]] = []
+    # Per-theme fonts live under each theme; the dashboard's font picker
+    # collapses them into one global list — picking one and saving it as
+    # `family: <name>` works as long as the theme also bundles the file
+    # (Phase 6e's required_fonts list will surface this).
+    for theme in sorted(themes_dir.iterdir()):
+        if theme.is_dir() and (theme / "fonts").is_dir():
+            roots.append((f"theme/{theme.name}", theme / "fonts"))
+    upstream = repo_root / "res" / "fonts"
+    if upstream.is_dir():
+        roots.append(("upstream", upstream))
+    if platform.system() == "Windows":
+        win = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+        if win.is_dir():
+            roots.append(("system", win))
+    return roots
+
+
+def _scan_fonts(themes_dir: Path) -> List[Dict[str, str]]:
+    """Walk every font root and read its TTF/OTF name tables. The
+    returned list is what the editor's font picker consumes.
+
+    Each item: {family, origin, file}. Duplicates by family name are
+    collapsed (theme-bundled wins over upstream wins over system).
+    """
+    global _FONT_CACHE
+    if _FONT_CACHE is not None:
+        return _FONT_CACHE
+    from PIL import ImageFont
+    by_family: Dict[str, Dict[str, str]] = {}
+    for origin, root in _font_roots(themes_dir):
+        try:
+            for f in root.rglob("*"):
+                if not f.is_file():
+                    continue
+                ext = f.suffix.lower()
+                if ext not in (".ttf", ".otf", ".ttc"):
+                    continue
+                try:
+                    ft = ImageFont.truetype(str(f), 12)
+                    family, _style = ft.getname()
+                except Exception:
+                    continue
+                if not family or family in by_family:
+                    continue
+                by_family[family] = {
+                    "family": family,
+                    "origin": origin,
+                    "file": str(f),
+                }
+        except OSError as exc:
+            log.debug("font root %s scan failed: %s", root, exc)
+    out = sorted(by_family.values(), key=lambda x: x["family"].lower())
+    _FONT_CACHE = out
+    log.info("font picker indexed %d families", len(out))
+    return out
 
 
 def _read_yaml(yaml_path: Path) -> Dict[str, Any]:
@@ -228,6 +304,14 @@ def register_editor_routes(app, manager) -> None:
             mimetype="image/png",
             max_age=0,  # editor previews are always fresh; cache-busted by ?t=
         )
+
+    @app.route("/api/fonts")
+    def api_fonts():
+        """Return all available fonts grouped by family. Cached for
+        the lifetime of the process — restart phase5_manager.py to pick
+        up newly installed fonts."""
+        items = _scan_fonts(manager.themes_dir)
+        return jsonify({"fonts": items, "count": len(items)})
 
     @app.route("/api/themes/<dir_name>/asset/<path:asset>")
     def api_theme_asset(dir_name: str, asset: str):

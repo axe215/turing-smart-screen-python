@@ -157,19 +157,70 @@
 }
 .editor-right h2 { font-size: 0.85rem; margin: 0 0 12px; color: #ddd; text-transform: uppercase; letter-spacing: 0.4px; }
 .properties-panel .muted { color: #888; font-size: 0.8rem; }
-.properties-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 0.82rem; }
-.properties-panel dt { color: #888; }
-.properties-panel dd { margin: 0; }
-.properties-panel input[type="number"] {
-  width: 70px;
+.properties-panel input, .properties-panel select {
   background: #0e0e0e;
   border: 1px solid #333;
   color: #eee;
-  padding: 2px 4px;
+  padding: 3px 6px;
   border-radius: 3px;
+  font-size: 0.82rem;
+  box-sizing: border-box;
 }
-.properties-panel .hint { margin-top: 14px; font-size: 0.72rem; color: #888; }
+.properties-panel input[type="number"] { width: 80px; }
+.properties-panel input[type="text"], .properties-panel select { width: 100%; }
+.properties-panel input[type="color"] {
+  width: 36px; height: 26px; padding: 1px; cursor: pointer;
+}
+.properties-panel input[data-empty="1"] { opacity: 0.4; }
+.properties-panel .flash-err { border-color: #c0533c; background: #3a1a14; }
+.properties-panel .hint, .properties-panel small.hint { display: block; margin-top: 2px; font-size: 0.7rem; color: #777; }
+.prop-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.82rem;
+}
+.prop-row > label { color: #aaa; }
+.prop-row > span { display: block; }
+.prop-grid { display: block; }
+.color-row { display: inline-flex; align-items: center; gap: 6px; }
+.color-row .micro {
+  font-size: 12px; line-height: 1;
+  width: 20px; height: 20px;
+  background: #2a2a2a; color: #ccc;
+  border: 1px solid #444; border-radius: 3px;
+  cursor: pointer;
+}
+.color-row .micro:hover { background: #3a3a3a; }
+.prop-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #2a2a2a;
+}
+.prop-buttons .btn { flex: 1; }
 .color-swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #555; margin-left: 6px; vertical-align: middle; }
+
+.add-widget-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.add-widget-row select {
+  flex: 1;
+  background: #0e0e0e;
+  color: #eee;
+  border: 1px solid #333;
+  padding: 4px;
+  border-radius: 3px;
+  font-size: 0.82rem;
+}
+
+.widget-box.is-hidden { opacity: 0.3; border-style: dotted; }
+.widget-box.is-disabled { opacity: 0.4; filter: grayscale(1); }
 
 /* Unavailable page (upstream themes pre-6d) */
 .editor-unavailable {
