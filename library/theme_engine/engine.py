@@ -81,6 +81,9 @@ class ThemeEngine:
         # H.264 (0/90/180/270). Re-encoded copy is cached next to source.
         self.rotate_video = rotate_video
         self.sources = data_sources or DataSourceRegistry()
+        # Cached for replace_runtime so the new renderer can be built
+        # with the same device profile.
+        self._screen = screen
 
         # Image-mode themes: bake the background into the renderer so
         # render_frame produces an opaque frame (no streaming needed).
@@ -197,6 +200,76 @@ class ThemeEngine:
         self._widget_thread.start()
         self.started_at = time.monotonic()
         self._running = True
+
+    def replace_runtime(self, new_theme: ThemeRuntime) -> dict:
+        """Swap the running theme's widget definitions in place.
+
+        Used by the editor's "→ Screen" button so the user sees their
+        edits without restarting the video stream (which would cause a
+        few seconds of black + decoder re-warmup). Hard requirements:
+
+        * Canvas dimensions must match — widget coords are absolute, so
+          a different canvas would push everything off-screen.
+        * Background type must match (image / video / none) — swapping
+          modes requires the streamer to start or stop, which isn't a
+          hot reload by definition.
+
+        On success the widget thread picks up the new widgets at its
+        next tick (≤ widget_period). On failure (mismatch), returns
+        {"ok": False, "reason": ...} and the engine keeps running the
+        old theme so the user can do a full Activate to apply changes.
+        """
+        if not self._running:
+            return {"ok": False, "reason": "engine is not running"}
+        old = self.theme
+        if (new_theme.canvas.width, new_theme.canvas.height) != (old.canvas.width, old.canvas.height):
+            return {"ok": False, "reason": "canvas dimensions changed — full Activate required"}
+        old_bg = "video" if old.video else ("image" if old.image else "none")
+        new_bg = "video" if new_theme.video else ("image" if new_theme.image else "none")
+        if old_bg != new_bg:
+            return {"ok": False, "reason": f"background type changed ({old_bg} → {new_bg}) — full Activate required"}
+
+        # Reload the renderer's background bitmap if the image-mode bg
+        # path changed (e.g. the user re-cropped while live).
+        new_bg_image = None
+        if new_theme.image is not None:
+            try:
+                from PIL import Image as _Image
+                p = new_theme.background_image_path
+                if p and p.exists():
+                    new_bg_image = _Image.open(p).convert("RGBA")
+            except Exception as exc:
+                log.warning("hot reload: could not load new bg image: %s", exc)
+
+        # Build the new renderer. Cheaper than mutating the existing one
+        # because font_family_index is per-theme (bundled fonts may differ
+        # between themes).
+        from .renderer import WidgetRenderer
+        old_renderer = self.renderer
+        self.renderer = WidgetRenderer(
+            new_theme,
+            self.sources,
+            screen=self._screen,
+            font_scale=old_renderer.font_scale,
+            background_image=new_bg_image,
+            force_black_text=old_renderer.force_black_text,
+        )
+        self.theme = new_theme
+        # Refresh the missing-fonts list against the new renderer.
+        self._missing_fonts = _check_required_fonts(
+            new_theme.required_fonts, self.renderer
+        )
+        # Old renderer's caches can go now.
+        try:
+            old_renderer.clear_caches()
+        except Exception:
+            pass
+        log.info(
+            "ThemeEngine.replace_runtime: widgets %d → %d (canvas %dx%d unchanged, bg %s)",
+            len(old.widgets), len(new_theme.widgets),
+            new_theme.canvas.width, new_theme.canvas.height, new_bg,
+        )
+        return {"ok": True, "missing_fonts": list(self._missing_fonts)}
 
     def stop(self) -> None:
         """Graceful shutdown. Idempotent: safe to call when not running."""

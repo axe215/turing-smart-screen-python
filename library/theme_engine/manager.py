@@ -433,6 +433,31 @@ class ThemeManager:
         """Alias for start() — kept for readability at call-sites."""
         self.start(dir_name, params=params)
 
+    def replace_live(self, dir_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Hot-reload the active engine's widget set from an in-memory
+        theme dict (i.e. the editor's pre-Save state). Returns:
+
+          {"ok": True}                          on success
+          {"ok": False, "reason": "<msg>"}      on rejection (theme not
+                                                active, canvas mismatch,
+                                                bg-type mismatch, …)
+
+        Does NOT mutate the on-disk YAML — that's a separate Save step.
+        """
+        from .runtime import build_runtime
+        with self._lock:
+            if self.active_engine is None or self.active_theme != dir_name:
+                return {"ok": False, "reason": "this theme is not active — Activate it first"}
+            info = self.get_theme(dir_name)
+            if info is None:
+                return {"ok": False, "reason": "theme not found"}
+            try:
+                new_runtime = build_runtime(data, info.yaml_path.parent, default_name=dir_name)
+            except Exception as exc:
+                log.exception("replace_live: build_runtime failed")
+                return {"ok": False, "reason": f"theme data invalid: {exc}"}
+            return self.active_engine.replace_runtime(new_runtime)
+
     # ------------------------------------------------------------------
     # Status snapshot for UIs
     # ------------------------------------------------------------------

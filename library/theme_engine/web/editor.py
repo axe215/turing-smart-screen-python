@@ -627,6 +627,25 @@ def register_editor_routes(app, manager) -> None:
         items = _scan_fonts(manager.themes_dir)
         return jsonify({"fonts": items, "count": len(items)})
 
+    @app.route("/api/themes/<dir_name>/push-live", methods=["POST"])
+    def api_theme_push_live(dir_name: str):
+        """Hot-reload the running engine with the editor's in-memory
+        theme data. No YAML write — call /save for that separately.
+        Returns 409 if the theme isn't currently active."""
+        info = manager.get_theme(dir_name)
+        if info is None:
+            abort(404)
+        if info.schema != "axe215_v1":
+            return jsonify({"error": "upstream themes can't be pushed live"}), 409
+        body = request.get_json(silent=True) or {}
+        data = body.get("data")
+        if not isinstance(data, dict):
+            return jsonify({"error": "body.data must be an object"}), 400
+        result = manager.replace_live(dir_name, data)
+        if not result.get("ok"):
+            return jsonify({"error": result.get("reason", "unknown")}), 409
+        return jsonify(result)
+
     @app.route("/api/themes/<dir_name>/asset/<path:asset>")
     def api_theme_asset(dir_name: str, asset: str):
         """Serve raw asset files from a theme directory (background

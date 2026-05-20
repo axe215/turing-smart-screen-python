@@ -670,8 +670,33 @@ async function previewRender() {
 
 // ---------- Wiring --------------------------------------------------------
 
+async function pushLive() {
+  const btn = $('btn-push-live');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Pushing…';
+  try {
+    const res = await fetch(`/api/themes/${encodeURIComponent(dirName)}/push-live`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({data: themeData}),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    btn.textContent = 'Pushed ✓';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
+  } catch (err) {
+    alert('Push live failed: ' + err.message);
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
 $('btn-save').addEventListener('click', save);
 $('btn-preview').addEventListener('click', previewRender);
+if ($('btn-push-live')) $('btn-push-live').addEventListener('click', pushLive);
 $('preview-close').addEventListener('click', () => $('preview-modal').classList.add('hidden'));
 $('preview-modal').addEventListener('click', (ev) => {
   if (ev.target.id === 'preview-modal') $('preview-modal').classList.add('hidden');
