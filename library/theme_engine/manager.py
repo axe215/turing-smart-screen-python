@@ -172,6 +172,9 @@ class EngineParams:
     # designed with specific colors (most upstream themes) deserve
     # to render in those colors.
     force_black_text: bool = False
+    # Backlight brightness, 0..100. Applied to the LCD on theme start
+    # and on-demand via /api/brightness for live adjustment.
+    brightness: int = 50
 
     def as_kwargs(self) -> Dict[str, Any]:
         return {
@@ -402,7 +405,24 @@ class ThemeManager:
             engine.start(widget_period=self.params.widget_period)
             self.active_engine = engine
             self.active_theme = info.dir_name
+            # Apply brightness once the screen is alive (calling earlier
+            # races against the LCD's own init in some firmware revs).
+            try:
+                self.lcd.SetBrightness(int(self.params.brightness))
+            except Exception as exc:
+                log.warning("SetBrightness(%s) failed: %s", self.params.brightness, exc)
             log.info("ThemeManager.start: active=%s schema=%s", info.dir_name, info.schema)
+
+    def set_brightness(self, level: int) -> None:
+        """Apply brightness immediately and remember it for next start."""
+        level = max(0, min(100, int(level)))
+        with self._lock:
+            self.params.brightness = level
+        try:
+            self.lcd.SetBrightness(level)
+        except Exception as exc:
+            log.warning("SetBrightness(%s) failed: %s", level, exc)
+            raise
 
     def stop(self) -> None:
         with self._lock:
@@ -476,6 +496,7 @@ class ThemeManager:
                     "widget_period": self.params.widget_period,
                     "screen": self.params.screen,
                     "force_black_text": self.params.force_black_text,
+                    "brightness": self.params.brightness,
                 },
                 "engine": engine_status,
                 "themes_dir": str(self.themes_dir),

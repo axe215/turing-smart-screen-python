@@ -18,6 +18,8 @@ const els = {
   fontScaleVal: $('#param-font-scale-val'),
   widgetPeriod: $('#param-widget-period'),
   widgetPeriodVal: $('#param-widget-period-val'),
+  brightness: $('#param-brightness'),
+  brightnessVal: $('#param-brightness-val'),
 };
 
 let themesCache = [];
@@ -76,6 +78,7 @@ function readParams() {
     font_scale: parseFloat(els.fontScale.value),
     widget_period: parseFloat(els.widgetPeriod.value),
     force_black_text: els.forceBlackText.checked,
+    brightness: parseInt(els.brightness.value, 10),
   };
 }
 
@@ -88,6 +91,10 @@ function writeParams(p) {
   els.fontScaleVal.textContent = Number(p.font_scale ?? 1.3).toFixed(2);
   els.widgetPeriod.value = String(p.widget_period ?? 1.0);
   els.widgetPeriodVal.textContent = Number(p.widget_period ?? 1.0).toFixed(1);
+  if (p.brightness != null) {
+    els.brightness.value = String(p.brightness);
+    els.brightnessVal.textContent = String(p.brightness);
+  }
 }
 
 // Per-theme params persistence — different themes want different
@@ -128,6 +135,28 @@ els.widgetPeriod.addEventListener('input', () => {
   els.widgetPeriodVal.textContent = Number(els.widgetPeriod.value).toFixed(1);
 });
 
+// Brightness: applied immediately to the screen on change (debounced
+// so rapid slider movement doesn't flood the USB endpoint). Label
+// updates live on every 'input' event for instant visual feedback.
+let _brightnessTimer = null;
+els.brightness.addEventListener('input', () => {
+  const v = parseInt(els.brightness.value, 10);
+  els.brightnessVal.textContent = String(v);
+  clearTimeout(_brightnessTimer);
+  _brightnessTimer = setTimeout(async () => {
+    try {
+      const res = await fetch('/api/brightness', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({level: v}),
+      });
+      if (!res.ok) throw new Error(await UI.parseErrorResponse(res));
+    } catch (err) {
+      UI.toast('Brightness: ' + err.message, 'error');
+    }
+  }, 150);
+});
+
 async function fetchJSON(url, opts) {
   const res = await fetch(url, opts);
   const ct = res.headers.get('content-type') || '';
@@ -154,13 +183,19 @@ function bgTypeIcon(type) {
 
 function renderThemes() {
   if (!themesCache.length) {
-    els.themeGrid.innerHTML = '<p style="color:var(--muted)">Нет тем в res/themes/. Сгенерируй через phase3_parse_turtheme.py --emit-theme.</p>';
+    els.themeGrid.innerHTML = `<div class="empty-state">
+      <p>Нет тем в <code>res/themes/</code>.</p>
+      <p class="hint">Жми <strong>+ Новая тема</strong> наверху или сгенерируй через <code>phase3_parse_turtheme.py --emit-theme</code>.</p>
+    </div>`;
     return;
   }
   const activeDir = lastStatus?.active_theme;
   const visible = themesCache.filter(passesFilter);
   if (!visible.length) {
-    els.themeGrid.innerHTML = '<p style="color:var(--muted)">Под фильтр ничего не подошло.</p>';
+    els.themeGrid.innerHTML = `<div class="empty-state">
+      <p>Под выбранный фильтр ничего не подошло.</p>
+      <p class="hint">Жми «Все» в фильтре сверху, чтобы вернуть список.</p>
+    </div>`;
     return;
   }
   els.themeGrid.innerHTML = visible.map(t => {
@@ -181,11 +216,13 @@ function renderThemes() {
     // Upstream themes can't be edited in place — Clone & Edit converts
     // them to axe215_v1 first. Native (axe215_v1) themes get a direct
     // "Edit" link plus a "Clone" duplicator.
+    // Visual hierarchy: Activate is primary; Edit/Clone are secondary
+    // (transparent border) so the active CTA pops on the card.
     const editBtn = t.schema === 'axe215_v1'
-      ? `<a class="btn" href="/editor/${encodeURIComponent(t.dir_name)}" target="_blank" rel="noopener" title="Открыть тему в редакторе">Edit</a>`
-      : `<button class="btn" data-action="clone" title="Сконвертировать в наш axe215_v1 формат и открыть в редакторе">Clone &amp; Edit</button>`;
+      ? `<a class="btn btn-secondary" href="/editor/${encodeURIComponent(t.dir_name)}" target="_blank" rel="noopener" title="Открыть тему в редакторе">Edit</a>`
+      : `<button class="btn btn-secondary" data-action="clone" title="Сконвертировать в наш axe215_v1 формат и открыть в редакторе">Clone &amp; Edit</button>`;
     const cloneBtn = t.schema === 'axe215_v1'
-      ? `<button class="btn" data-action="clone" title="Сделать редактируемую копию темы">Clone</button>`
+      ? `<button class="btn btn-secondary" data-action="clone" title="Сделать редактируемую копию темы">Clone</button>`
       : '';
     // Per-card preview rotation: applied client-side, persisted to localStorage.
     const rot = previewRotations[t.dir_name] | 0;
@@ -244,26 +281,37 @@ function renderThemes() {
         writeParams(params);
       }
 
+      // 30s timeout — bail out gracefully if the backend hangs (decoder
+      // warmup, USB reset, etc.) so the button doesn't sit disabled.
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 30000);
       try {
-        await fetchJSON('/api/start', {
+        const res = await fetch('/api/start', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({dir_name: dir, params}),
+          signal: ctl.signal,
         });
+        if (!res.ok) throw new Error(await UI.parseErrorResponse(res));
         themeParams[dir] = params;
         saveThemeParams(themeParams);
         await refreshStatus();
         renderThemes();
+        UI.toast(`Активна: ${theme?.name || dir}`, 'success');
       } catch (err) {
-        alert('Start failed: ' + err.message);
+        const msg = err.name === 'AbortError'
+          ? 'Backend не ответил за 30 секунд — проверь логи phase5_manager.py'
+          : 'Start failed: ' + err.message;
+        UI.toast(msg, 'error', 8000);
       } finally {
+        clearTimeout(timer);
         btn.disabled = false;
         btn.textContent = prev;
       }
     });
   });
 
-  // Clone button — prompts for a name, calls clone endpoint, opens editor
+  // Clone button — modal prompt, then call clone endpoint, open editor
   $$('[data-action="clone"]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -271,8 +319,15 @@ function renderThemes() {
       const dir = card.dataset.dir;
       const theme = themesCache.find(t => t.dir_name === dir);
       const suggested = (theme?.name || dir) + ' copy';
-      const newName = prompt('Имя новой темы:', suggested);
-      if (!newName || !newName.trim()) return;
+      const isUpstream = theme?.schema !== 'axe215_v1';
+      const newName = await UI.promptDialog(
+        isUpstream
+          ? 'Имя для редактируемой копии (конвертируется в наш формат):'
+          : 'Имя новой копии:',
+        suggested,
+        {title: isUpstream ? 'Clone & Edit' : 'Clone theme', okLabel: 'Создать'},
+      );
+      if (!newName) return;
       btn.disabled = true;
       const prev = btn.textContent;
       btn.textContent = 'Cloning…';
@@ -280,17 +335,15 @@ function renderThemes() {
         const res = await fetch(`/api/themes/${encodeURIComponent(dir)}/clone`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({new_name: newName.trim()}),
+          body: JSON.stringify({new_name: newName}),
         });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `HTTP ${res.status}`);
-        }
+        if (!res.ok) throw new Error(await UI.parseErrorResponse(res));
         const data = await res.json();
+        UI.toast(`Создана: ${newName}`, 'success');
         window.open(data.editor_url, '_blank');
         await refreshThemes();
       } catch (err) {
-        alert('Clone failed: ' + err.message);
+        UI.toast('Clone failed: ' + err.message, 'error', 6000);
       } finally {
         btn.disabled = false;
         btn.textContent = prev;
@@ -396,12 +449,17 @@ els.stopBtn.addEventListener('click', async () => {
   }
 });
 
-// filter buttons
+// Filter buttons: store the new filter then re-apply explicit active
+// state based on currentFilter (decouples visual state from click order
+// so a programmatic filter change stays in sync).
+function syncFilterButtons() {
+  $$('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === currentFilter));
+}
 els.filterBar.addEventListener('click', (e) => {
   const btn = e.target.closest('.filter-btn');
   if (!btn) return;
-  $$('.filter-btn').forEach(b => b.classList.toggle('active', b === btn));
   currentFilter = btn.dataset.filter;
+  syncFilterButtons();
   renderThemes();
 });
 

@@ -1,0 +1,97 @@
+/* Shared UI primitives loaded by both pages. */
+
+/* ---- Toast (bottom-right notifications) ----------------------------- */
+#toast-host {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  background: #2a2a2a;
+  color: #eee;
+  padding: 10px 16px;
+  border-radius: 4px;
+  border-left: 3px solid #888;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-size: 0.86rem;
+  max-width: 380px;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 200ms ease, transform 200ms ease;
+  pointer-events: auto;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-success { border-left-color: #6fc46f; }
+.toast-error   { border-left-color: #c0533c; }
+.toast-warn    { border-left-color: #e8b964; }
+.toast-info    { border-left-color: #5a92c4; }
+
+/* ---- Dialog modal (runtime-built confirm / prompt) ------------------- */
+.js-dialog-modal .dialog-inner { min-width: 360px; }
+.js-dialog-modal .dialog-message {
+  margin: 0;
+  color: #ddd;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.js-dialog-modal .dialog-actions { padding-top: 0; }
+
+/* ---- Loading spinner ------------------------------------------------- */
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #6fc46f;
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+  vertical-align: middle;
+}
+.spinner-big { width: 36px; height: 36px; border-width: 3px; }
+.spinner-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #888;
+  padding: 40px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Button hierarchy refinement ------------------------------------ */
+/* Secondary buttons (Edit/Clone on cards) — visually quieter than primary
+ * so the user's eye lands on Activate first. */
+.btn-secondary {
+  background: transparent;
+  border: 1px solid #4a4a4a;
+  color: #cfcfcf;
+}
+.btn-secondary:hover { background: #2a2a2a; border-color: #6a6a6a; color: #fff; }
+
+/* ---- Focus states (a11y) -------------------------------------------- */
+.btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #6fc46f;
+  outline-offset: 2px;
+}
+
+/* ---- Keyboard hint chip --------------------------------------------- */
+kbd {
+  display: inline-block;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: #ddd;
+}

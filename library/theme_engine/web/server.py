@@ -85,6 +85,19 @@ def create_app(manager: ThemeManager) -> Flask:
         manager.stop()
         return jsonify(manager.status())
 
+    @app.route("/api/brightness", methods=["POST"])
+    def api_brightness():
+        body = request.get_json(silent=True) or {}
+        try:
+            level = int(body.get("level"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "level required (int 0..100)"}), 400
+        try:
+            manager.set_brightness(level)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        return jsonify({"ok": True, "brightness": manager.params.brightness})
+
     @app.route("/themes/<dir_name>/preview")
     def theme_preview(dir_name: str):
         info = manager.get_theme(dir_name)

@@ -42,6 +42,16 @@
   display: flex;
   gap: 8px;
 }
+/* Dirty (unsaved) indicator on the Save button */
+.btn.btn-dirty {
+  background: #c4a06f;
+  color: #1a1a1a;
+  animation: pulse-dirty 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dirty {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(196, 160, 111, 0.6); }
+  50%      { box-shadow: 0 0 0 4px rgba(196, 160, 111, 0); }
+}
 
 .editor-main {
   flex: 1 1 auto;
@@ -70,7 +80,11 @@
   font-size: 0.85rem;
 }
 .widget-list-item:hover { background: #2a2a2a; }
-.widget-list-item.selected { background: #3a4a3a; }
+.widget-list-item.selected {
+  background: rgba(111, 196, 111, 0.18);
+  border-left: 2px solid #6fc46f;
+  padding-left: 6px;
+}
 .widget-list-item .dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }

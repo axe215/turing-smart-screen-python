@@ -336,7 +336,9 @@ function selectWidget(id) {
 
 function refreshProperties() {
   if (!selectedId) {
-    propertiesPanel.innerHTML = '<p class="muted">Выбери виджет в списке слева или на холсте.</p>';
+    propertiesPanel.innerHTML = `
+      <p class="muted">Выбери виджет в списке слева или на холсте.</p>
+      <p class="hint">Горячие клавиши: <kbd>←↑→↓</kbd> двигают на 1px (<kbd>Shift</kbd> = 10px), <kbd>Del</kbd>/<kbd>Backspace</kbd> удаляет, <kbd>Ctrl+D</kbd> дублирует, <kbd>Ctrl+S</kbd> сохраняет, <kbd>Esc</kbd> закрывает модалки.</p>`;
     return;
   }
   const w = findWidget(selectedId);
@@ -515,6 +517,7 @@ function onFieldInput(ev) {
     box.classList.toggle('is-hidden', !!w.hide);
     box.classList.toggle('is-disabled', w.enabled === false);
   }
+  markDirty();
 }
 
 function flashError(el) {
@@ -533,6 +536,7 @@ function addWidget(type) {
   themeData.widgets.push(w);
   renderWidgets();
   selectWidget(id);
+  markDirty();
 }
 
 function duplicateWidget(id) {
@@ -546,13 +550,20 @@ function duplicateWidget(id) {
   themeData.widgets.splice(idx + 1, 0, copy);
   renderWidgets();
   selectWidget(copy.id);
+  markDirty();
 }
 
-function deleteWidget(id) {
-  if (!confirm(`Удалить виджет «${id}»?`)) return;
+async function deleteWidget(id) {
+  const ok = await UI.confirmDialog(
+    `Удалить виджет «${id}»? Действие необратимо (можно восстановить из последнего .bak).`,
+    {title: 'Удалить виджет', okLabel: 'Удалить', danger: true},
+  );
+  if (!ok) return;
   themeData.widgets = (themeData.widgets || []).filter((w) => w.id !== id);
   if (selectedId === id) selectedId = null;
   renderWidgets();
+  markDirty();
+  UI.toast(`Удалён: ${id}`, 'info', 2500);
 }
 
 function uniqueId(base) {
@@ -605,9 +616,11 @@ function onDragMove(ev) {
     if (xi) xi.value = w.x;
     if (yi) yi.value = w.y;
   }
+  dragState.moved = true;
 }
 
 function onDragEnd() {
+  if (dragState && dragState.moved) markDirty();
   dragState = null;
   window.removeEventListener('mousemove', onDragMove);
   window.removeEventListener('mouseup', onDragEnd);
@@ -615,10 +628,28 @@ function onDragEnd() {
 
 // ---------- Save / preview ------------------------------------------------
 
+// Dirty-state tracking — beforeunload warns the user before they lose
+// unsaved edits by closing the tab / navigating away.
+let dirty = false;
+function markDirty() { dirty = true; updateSaveBadge(); }
+function markClean() { dirty = false; updateSaveBadge(); }
+function updateSaveBadge() {
+  const btn = $('btn-save');
+  if (!btn) return;
+  btn.classList.toggle('btn-dirty', dirty);
+  btn.textContent = dirty ? 'Save *' : 'Save';
+}
+window.addEventListener('beforeunload', (ev) => {
+  if (!dirty) return;
+  ev.preventDefault();
+  ev.returnValue = 'Есть несохранённые изменения. Уйти со страницы?';
+  return ev.returnValue;
+});
+
 async function save() {
   const btn = $('btn-save');
   btn.disabled = true;
-  const orig = btn.textContent;
+  const wasDirty = dirty;
   btn.textContent = 'Saving…';
   try {
     const res = await fetch(`/api/themes/${encodeURIComponent(dirName)}/save`, {
@@ -626,16 +657,15 @@ async function save() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({data: themeData}),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(await UI.parseErrorResponse(res));
+    markClean();
     btn.textContent = 'Saved ✓';
-    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
+    UI.toast('Сохранено в theme.yaml (бекап в .bak)', 'success');
+    setTimeout(() => { btn.disabled = false; updateSaveBadge(); }, 1500);
   } catch (err) {
-    alert('Save failed: ' + err.message);
-    btn.textContent = orig;
+    UI.toast('Save failed: ' + err.message, 'error', 6000);
     btn.disabled = false;
+    updateSaveBadge();
   }
 }
 
@@ -650,10 +680,7 @@ async function previewRender() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({data: themeData}),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(await UI.parseErrorResponse(res));
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const img = $('preview-image');
@@ -661,7 +688,7 @@ async function previewRender() {
     img.src = url;
     $('preview-modal').classList.remove('hidden');
   } catch (err) {
-    alert('Preview render failed: ' + err.message);
+    UI.toast('Preview render failed: ' + err.message, 'error', 6000);
   } finally {
     btn.textContent = orig;
     btn.disabled = false;
@@ -681,14 +708,12 @@ async function pushLive() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({data: themeData}),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(await UI.parseErrorResponse(res));
     btn.textContent = 'Pushed ✓';
-    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1200);
+    UI.toast('Изменения на экране (без сохранения)', 'success');
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1500);
   } catch (err) {
-    alert('Push live failed: ' + err.message);
+    UI.toast('Push live failed: ' + err.message, 'error', 7000);
     btn.textContent = orig;
     btn.disabled = false;
   }
@@ -700,6 +725,58 @@ if ($('btn-push-live')) $('btn-push-live').addEventListener('click', pushLive);
 $('preview-close').addEventListener('click', () => $('preview-modal').classList.add('hidden'));
 $('preview-modal').addEventListener('click', (ev) => {
   if (ev.target.id === 'preview-modal') $('preview-modal').classList.add('hidden');
+});
+
+// ---------- Keyboard shortcuts -------------------------------------------
+// Editor-wide hotkeys. Skip when focus is inside an input/textarea/select
+// so typing in the properties panel doesn't trigger them.
+document.addEventListener('keydown', (ev) => {
+  // Modal escape — close whichever modal is open
+  if (ev.key === 'Escape') {
+    if (!$('preview-modal').classList.contains('hidden')) {
+      $('preview-modal').classList.add('hidden');
+      ev.preventDefault();
+      return;
+    }
+    if (!$('crop-modal').classList.contains('hidden')) {
+      $('crop-modal').classList.add('hidden');
+      ev.preventDefault();
+      return;
+    }
+  }
+  // Don't capture typing-area shortcuts
+  const tag = (ev.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || ev.target.isContentEditable) {
+    // Ctrl/Cmd+S still works inside inputs — common save expectation
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
+      ev.preventDefault(); save();
+    }
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {
+    ev.preventDefault(); save();
+  } else if (ev.key === 'Delete' || ev.key === 'Backspace') {
+    if (selectedId) { ev.preventDefault(); deleteWidget(selectedId); }
+  } else if (ev.key === 'd' && (ev.ctrlKey || ev.metaKey)) {
+    if (selectedId) { ev.preventDefault(); duplicateWidget(selectedId); }
+  } else if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(ev.key) && selectedId) {
+    // Arrow nudge: 1 px, shift = 10 px
+    ev.preventDefault();
+    const step = ev.shiftKey ? 10 : 1;
+    const w = findWidget(selectedId);
+    if (!w) return;
+    if (ev.key === 'ArrowLeft')  w.x = (w.x || 0) - step;
+    if (ev.key === 'ArrowRight') w.x = (w.x || 0) + step;
+    if (ev.key === 'ArrowUp')    w.y = (w.y || 0) - step;
+    if (ev.key === 'ArrowDown')  w.y = (w.y || 0) + step;
+    const box = widgetsById.get(selectedId);
+    if (box) positionBox(box, w);
+    const xi = propertiesPanel.querySelector('[data-bind="x"]');
+    const yi = propertiesPanel.querySelector('[data-bind="y"]');
+    if (xi) xi.value = w.x;
+    if (yi) yi.value = w.y;
+    markDirty();
+  }
 });
 
 // Populate "Add widget" type picker
@@ -723,12 +800,13 @@ if ($('canvas-apply')) {
     const w = parseInt($('canvas-width').value, 10);
     const h = parseInt($('canvas-height').value, 10);
     if (!w || !h || w < 32 || h < 32 || w > 8000 || h > 8000) {
-      alert('Width/Height нужны в диапазоне 32..8000');
+      UI.toast('Width/Height нужны в диапазоне 32..8000', 'error');
       return;
     }
     themeData.canvas = {width: w, height: h};
     layoutCanvas();
     refreshMeta();
+    markDirty();
   });
 }
 

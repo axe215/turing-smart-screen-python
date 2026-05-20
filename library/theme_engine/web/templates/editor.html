@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Editor — {{ dir_name }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='common.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='editor.css') }}">
 </head>
@@ -104,6 +105,7 @@
 <script>
 window.EDITOR_DIR = {{ dir_name|tojson }};
 </script>
+<script src="{{ url_for('static', filename='common.js') }}"></script>
 <script src="{{ url_for('static', filename='editor.js') }}"></script>
 </body>
 </html>
