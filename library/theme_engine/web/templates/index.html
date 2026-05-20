@@ -57,8 +57,11 @@
   </section>
 
   <section id="themes">
-    <h2>Темы</h2>
-    <p class="hint">Карточка с зелёной обводкой и значком ● ACTIVE — то, что сейчас идёт на экране. Темы с тегом «upstream» — апстрим mathoudebine, конвертируются нашим адаптером на лету (static-image фон + STATS-виджеты в наши data-виджеты).</p>
+    <div class="themes-header">
+      <h2>Темы</h2>
+      <button id="new-theme-btn" class="btn btn-primary">+ Новая тема</button>
+    </div>
+    <p class="hint">Карточка с зелёной обводкой и значком ● ACTIVE — то, что сейчас идёт на экране. Темы с тегом «upstream» — апстрим mathoudebine. <strong>Edit</strong> открывает редактор; <strong>Clone</strong> делает редактируемую копию.</p>
     <div class="filter-bar" id="filter-bar">
       <button class="filter-btn active" data-filter="all">Все</button>
       <button class="filter-btn" data-filter="video">🎥 Видео</button>
@@ -71,6 +74,32 @@
   </section>
 
 </main>
+
+<div id="new-theme-modal" class="modal hidden">
+  <div class="modal-inner">
+    <div class="modal-bar">
+      <span>Новая тема</span>
+      <button data-action="modal-close" class="btn btn-icon">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="form-row"><span>Имя темы</span>
+        <input type="text" id="new-theme-name" placeholder="Моя классная тема">
+      </label>
+      <label class="form-row"><span>Экран</span>
+        <select id="new-theme-screen"></select>
+      </label>
+      <div class="form-row form-grid-2">
+        <label><span>Width (px)</span><input type="number" id="new-theme-width" step="1"></label>
+        <label><span>Height (px)</span><input type="number" id="new-theme-height" step="1"></label>
+      </div>
+      <p class="hint">Размеры подставятся по выбору экрана. Поменяй вручную для нестандартного размера или поверни ориентацию (например 462×1920 = portrait 9.2").</p>
+      <div class="modal-actions">
+        <button data-action="modal-close" class="btn">Отмена</button>
+        <button id="new-theme-create" class="btn btn-primary">Создать и открыть</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

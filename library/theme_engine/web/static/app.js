@@ -181,6 +181,9 @@ function renderThemes() {
     const editBtn = t.schema === 'axe215_v1'
       ? `<a class="btn" href="/editor/${encodeURIComponent(t.dir_name)}" target="_blank" rel="noopener" title="Открыть тему в редакторе">Edit</a>`
       : `<button class="btn" disabled title="Upstream theme — Phase 6d добавит «Clone & edit»">Edit</button>`;
+    const cloneBtn = t.schema === 'axe215_v1'
+      ? `<button class="btn" data-action="clone" title="Сделать редактируемую копию темы">Clone</button>`
+      : '';
     // Per-card preview rotation: applied client-side, persisted to localStorage.
     const rot = previewRotations[t.dir_name] | 0;
     // No inline style up front — applyPreviewRotation() handles dimensions
@@ -209,7 +212,7 @@ function renderThemes() {
           ${typeBadge}${schemaBadge}
           ${t.canvas_width}×${t.canvas_height} · ${t.widget_count} widgets
         </div>
-        <div class="actions">${btn}${editBtn}</div>
+        <div class="actions">${btn}${editBtn}${cloneBtn}</div>
       </div>
     `;
   }).join('');
@@ -250,6 +253,41 @@ function renderThemes() {
         renderThemes();
       } catch (err) {
         alert('Start failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
+      }
+    });
+  });
+
+  // Clone button — prompts for a name, calls clone endpoint, opens editor
+  $$('[data-action="clone"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const card = e.target.closest('.theme-card');
+      const dir = card.dataset.dir;
+      const theme = themesCache.find(t => t.dir_name === dir);
+      const suggested = (theme?.name || dir) + ' copy';
+      const newName = prompt('Имя новой темы:', suggested);
+      if (!newName || !newName.trim()) return;
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = 'Cloning…';
+      try {
+        const res = await fetch(`/api/themes/${encodeURIComponent(dir)}/clone`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({new_name: newName.trim()}),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        window.open(data.editor_url, '_blank');
+        await refreshThemes();
+      } catch (err) {
+        alert('Clone failed: ' + err.message);
       } finally {
         btn.disabled = false;
         btn.textContent = prev;
@@ -359,6 +397,74 @@ els.filterBar.addEventListener('click', (e) => {
   currentFilter = btn.dataset.filter;
   renderThemes();
 });
+
+// "+ New theme" modal
+const newThemeBtn = document.getElementById('new-theme-btn');
+const newThemeModal = document.getElementById('new-theme-modal');
+const newThemeName = document.getElementById('new-theme-name');
+const newThemeScreen = document.getElementById('new-theme-screen');
+const newThemeWidth = document.getElementById('new-theme-width');
+const newThemeHeight = document.getElementById('new-theme-height');
+const newThemeCreate = document.getElementById('new-theme-create');
+
+async function populateScreens() {
+  try {
+    const res = await fetch('/api/screens');
+    const data = await res.json();
+    newThemeScreen.innerHTML = data.screens.map((s, i) =>
+      `<option value="${i}" data-w="${s.width}" data-h="${s.height}">${s.label} — ${s.width}×${s.height}</option>`
+    ).join('') + `<option value="custom">— custom —</option>`;
+    syncScreenSize();
+  } catch (e) { console.error(e); }
+}
+function syncScreenSize() {
+  const opt = newThemeScreen.selectedOptions[0];
+  if (!opt || opt.value === 'custom') return;
+  newThemeWidth.value = opt.dataset.w;
+  newThemeHeight.value = opt.dataset.h;
+}
+
+if (newThemeBtn) {
+  newThemeBtn.addEventListener('click', () => {
+    newThemeModal.classList.remove('hidden');
+    if (!newThemeScreen.options.length) populateScreens();
+    newThemeName.focus();
+  });
+  newThemeScreen.addEventListener('change', syncScreenSize);
+  document.querySelectorAll('#new-theme-modal [data-action="modal-close"]').forEach(b => {
+    b.addEventListener('click', () => newThemeModal.classList.add('hidden'));
+  });
+  newThemeModal.addEventListener('click', (ev) => {
+    if (ev.target.id === 'new-theme-modal') newThemeModal.classList.add('hidden');
+  });
+  newThemeCreate.addEventListener('click', async () => {
+    const name = newThemeName.value.trim();
+    const width = parseInt(newThemeWidth.value, 10);
+    const height = parseInt(newThemeHeight.value, 10);
+    if (!name) { alert('Имя темы обязательно'); return; }
+    if (!width || !height) { alert('Width и Height нужны'); return; }
+    newThemeCreate.disabled = true;
+    try {
+      const res = await fetch('/api/themes/new', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, width, height}),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      window.open(data.editor_url, '_blank');
+      newThemeModal.classList.add('hidden');
+      await refreshThemes();
+    } catch (err) {
+      alert('Создать не удалось: ' + err.message);
+    } finally {
+      newThemeCreate.disabled = false;
+    }
+  });
+}
 
 (async () => {
   await refreshStatus();

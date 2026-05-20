@@ -29,6 +29,7 @@ import io
 import logging
 import os
 import platform
+import re
 import shutil
 import time
 from datetime import datetime
@@ -50,6 +51,51 @@ log = logging.getLogger(__name__)
 # Pillow — expensive enough (a few seconds on Win11) that we want to
 # pay it once. Invalidated only on process restart.
 _FONT_CACHE: Optional[List[Dict[str, str]]] = None
+
+
+# Supported screens — mirror of upstream_adapter._DISPLAY_SIZE plus a
+# `landscape` flag so the UI knows which orientation the manufacturer
+# treats as native. Users can still pick portrait by editing canvas in
+# the editor.
+SUPPORTED_SCREENS: List[Dict[str, Any]] = [
+    {"label": '0.96"', "size": "0.96", "width": 160,  "height": 80},
+    {"label": '2.1"',  "size": "2.1",  "width": 480,  "height": 480},
+    {"label": '2.8"',  "size": "2.8",  "width": 480,  "height": 480},
+    {"label": '3.5"',  "size": "3.5",  "width": 480,  "height": 320},
+    {"label": '4.6"',  "size": "4.6",  "width": 960,  "height": 320},
+    {"label": '5"',    "size": "5",    "width": 800,  "height": 480},
+    {"label": '5.2"',  "size": "5.2",  "width": 1280, "height": 720},
+    {"label": '8"',    "size": "8",    "width": 1920, "height": 480},
+    {"label": '8.8"',  "size": "8.8",  "width": 1920, "height": 480},
+    {"label": '9.2"',  "size": "9.2",  "width": 1920, "height": 462},
+    {"label": '12.3"', "size": "12.3", "width": 1920, "height": 720},
+]
+
+
+# Allowed image / video extensions for background uploads. Anything
+# else 415s — we don't want users smuggling .exe files into a theme
+# directory just because the form-data check is missing.
+_ALLOWED_BG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".mp4", ".webm"}
+
+
+def _safe_dir_name(name: str) -> str:
+    """Turn a free-form theme name into a filesystem-safe directory
+    name. Disallows separators and reserved characters; collapses
+    repeated dashes/underscores."""
+    cleaned = re.sub(r"[^A-Za-z0-9._ -]+", "", name).strip()
+    cleaned = re.sub(r"\s+", "_", cleaned)
+    cleaned = re.sub(r"_{2,}", "_", cleaned)
+    return cleaned[:64] or "theme"
+
+
+def _unique_theme_dir(themes_dir: Path, base: str) -> Path:
+    """Append _2, _3, … until the directory does not exist."""
+    candidate = themes_dir / base
+    n = 2
+    while candidate.exists():
+        candidate = themes_dir / f"{base}_{n}"
+        n += 1
+    return candidate
 
 
 def _font_roots(themes_dir: Path) -> List[Tuple[str, Path]]:
@@ -304,6 +350,231 @@ def register_editor_routes(app, manager) -> None:
             mimetype="image/png",
             max_age=0,  # editor previews are always fresh; cache-busted by ?t=
         )
+
+    @app.route("/api/screens")
+    def api_screens():
+        return jsonify({"screens": SUPPORTED_SCREENS})
+
+    @app.route("/api/themes/new", methods=["POST"])
+    def api_theme_new():
+        """Create a blank axe215_v1 theme.
+
+        Body: {name, width, height, dir_name?}
+        Returns: {dir_name, editor_url}
+        """
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "name required"}), 400
+        try:
+            width = int(body.get("width"))
+            height = int(body.get("height"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "width and height required (int)"}), 400
+        if width <= 0 or height <= 0 or width > 8000 or height > 8000:
+            return jsonify({"error": "width/height out of range"}), 400
+        base = body.get("dir_name") or _safe_dir_name(name)
+        target = _unique_theme_dir(manager.themes_dir, base)
+        target.mkdir(parents=True, exist_ok=False)
+        # Minimal blank theme YAML
+        data = {
+            "schema_version": 1,
+            "name": name,
+            "canvas": {"width": width, "height": height},
+            "widgets": [],
+            "editor_version": 1,
+            "editor_last_saved": datetime.now().isoformat(timespec="seconds"),
+        }
+        _atomic_write_yaml(target / "theme.yaml", data)
+        return jsonify({
+            "dir_name": target.name,
+            "editor_url": f"/editor/{target.name}",
+        })
+
+    @app.route("/api/themes/<dir_name>/clone", methods=["POST"])
+    def api_theme_clone(dir_name: str):
+        """Clone an existing theme directory under a new name.
+
+        Body: {new_name, dir_name?}
+        Currently only clones axe215_v1 themes (Phase 6d will add the
+        upstream → axe215_v1 conversion path).
+        """
+        info = manager.get_theme(dir_name)
+        if info is None:
+            abort(404)
+        if info.schema != "axe215_v1":
+            return jsonify({"error": "upstream theme cloning lives in Phase 6d"}), 409
+        body = request.get_json(silent=True) or {}
+        new_name = str(body.get("new_name") or "").strip()
+        if not new_name:
+            return jsonify({"error": "new_name required"}), 400
+        base = body.get("dir_name") or _safe_dir_name(new_name)
+        target = _unique_theme_dir(manager.themes_dir, base)
+        src_dir = info.yaml_path.parent
+        try:
+            shutil.copytree(src_dir, target)
+        except OSError as exc:
+            log.exception("clone copy failed: %s → %s", src_dir, target)
+            return jsonify({"error": str(exc)}), 500
+        # Update the cloned theme's display name
+        try:
+            data = _read_yaml(target / "theme.yaml")
+            data["name"] = new_name
+            data["editor_version"] = 1
+            data["editor_last_saved"] = datetime.now().isoformat(timespec="seconds")
+            # Drop any stale .cache from the source — preview will regenerate
+            cache = target / ".cache"
+            if cache.exists():
+                shutil.rmtree(cache, ignore_errors=True)
+            _atomic_write_yaml(target / "theme.yaml", data)
+        except Exception as exc:
+            log.exception("clone rename failed")
+            return jsonify({"error": str(exc)}), 500
+        return jsonify({
+            "dir_name": target.name,
+            "editor_url": f"/editor/{target.name}",
+        })
+
+    @app.route("/api/themes/<dir_name>/upload", methods=["POST"])
+    def api_theme_upload(dir_name: str):
+        """Receive a background asset (image/video) into the theme dir.
+
+        Saved as `_uploaded<ext>` so it doesn't collide with the active
+        background.png; the crop step writes the final `background.png`
+        and the editor switches the YAML's image.path to it.
+
+        Body: multipart with field `file`.
+        Returns: {filename, asset_url, width, height}
+        """
+        info = manager.get_theme(dir_name)
+        if info is None:
+            abort(404)
+        if "file" not in request.files:
+            return jsonify({"error": "file part missing"}), 400
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify({"error": "empty filename"}), 400
+        ext = Path(f.filename).suffix.lower()
+        if ext not in _ALLOWED_BG_EXTS:
+            return jsonify({"error": f"extension {ext} not allowed"}), 415
+        target = info.yaml_path.parent / f"_uploaded{ext}"
+        try:
+            f.save(str(target))
+        except OSError as exc:
+            log.exception("upload save failed")
+            return jsonify({"error": str(exc)}), 500
+        # Inspect image dimensions so the cropper knows the source size.
+        meta = {"width": None, "height": None}
+        if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
+            try:
+                from PIL import Image
+                with Image.open(target) as im:
+                    meta["width"], meta["height"] = im.size
+            except Exception as exc:
+                log.warning("upload meta probe failed: %s", exc)
+        return jsonify({
+            "filename": target.name,
+            "asset_url": f"/api/themes/{dir_name}/asset/{target.name}",
+            **meta,
+        })
+
+    @app.route("/api/themes/<dir_name>/crop-bg", methods=["POST"])
+    def api_theme_crop_bg(dir_name: str):
+        """Crop the uploaded asset to the requested rect and save as
+        background.png in the theme directory.
+
+        Body: {filename, crop: {x, y, w, h}, fit_canvas?: bool}
+        When fit_canvas=true (default), the cropped result is scaled to
+        the canvas's pixel dimensions so widget coords map 1:1.
+        """
+        info = manager.get_theme(dir_name)
+        if info is None:
+            abort(404)
+        body = request.get_json(silent=True) or {}
+        filename = str(body.get("filename") or "")
+        crop = body.get("crop") or {}
+        try:
+            cx = int(crop["x"]); cy = int(crop["y"])
+            cw = int(crop["w"]); ch = int(crop["h"])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "crop {x,y,w,h} required (int)"}), 400
+        if cw <= 0 or ch <= 0:
+            return jsonify({"error": "crop w/h must be positive"}), 400
+        src = (info.yaml_path.parent / filename).resolve()
+        try:
+            src.relative_to(info.yaml_path.parent.resolve())
+        except ValueError:
+            abort(403)
+        if not src.exists():
+            return jsonify({"error": "filename not found in theme dir"}), 404
+        fit_canvas = bool(body.get("fit_canvas", True))
+        try:
+            from PIL import Image
+            im = Image.open(src).convert("RGBA")
+            box = (cx, cy, cx + cw, cy + ch)
+            cropped = im.crop(box)
+            if fit_canvas:
+                canvas = info.canvas
+                if cropped.size != canvas:
+                    cropped = cropped.resize(canvas, Image.LANCZOS)
+            out_path = info.yaml_path.parent / "background.png"
+            cropped.save(out_path, format="PNG", optimize=True)
+        except Exception as exc:
+            log.exception("crop failed")
+            return jsonify({"error": str(exc)}), 500
+        # Update YAML to point at background.png as the image source.
+        try:
+            data = _read_yaml(info.yaml_path)
+            data.setdefault("image", {})["path"] = "background.png"
+            # Drop any conflicting video block — image takes precedence
+            data.pop("video", None)
+            data["editor_version"] = 1
+            data["editor_last_saved"] = datetime.now().isoformat(timespec="seconds")
+            _atomic_write_yaml(info.yaml_path, data)
+        except Exception as exc:
+            log.exception("crop YAML update failed")
+            return jsonify({"error": str(exc)}), 500
+        return jsonify({
+            "ok": True,
+            "background_path": "background.png",
+            "preview_url": f"/api/themes/{dir_name}/preview?t={int(time.time())}",
+        })
+
+    @app.route("/api/themes/<dir_name>/set-video", methods=["POST"])
+    def api_theme_set_video(dir_name: str):
+        """Switch the theme to use a video background. Body: {filename}.
+
+        Video assets are referenced as-is without cropping. The user is
+        expected to pre-rotate / size the file to match the canvas.
+        """
+        info = manager.get_theme(dir_name)
+        if info is None:
+            abort(404)
+        body = request.get_json(silent=True) or {}
+        filename = str(body.get("filename") or "")
+        src = (info.yaml_path.parent / filename).resolve()
+        try:
+            src.relative_to(info.yaml_path.parent.resolve())
+        except ValueError:
+            abort(403)
+        if not src.exists():
+            return jsonify({"error": "filename not found in theme dir"}), 404
+        # Rename _uploaded.mp4 → video.mp4 so the asset name is stable
+        target_name = "video" + src.suffix.lower()
+        target = info.yaml_path.parent / target_name
+        if src != target:
+            shutil.move(str(src), str(target))
+        try:
+            data = _read_yaml(info.yaml_path)
+            data.setdefault("video", {})["path"] = target_name
+            data.pop("image", None)
+            data["editor_version"] = 1
+            data["editor_last_saved"] = datetime.now().isoformat(timespec="seconds")
+            _atomic_write_yaml(info.yaml_path, data)
+        except Exception as exc:
+            log.exception("set-video YAML update failed")
+            return jsonify({"error": str(exc)}), 500
+        return jsonify({"ok": True, "video_path": target_name})
 
     @app.route("/api/fonts")
     def api_fonts():

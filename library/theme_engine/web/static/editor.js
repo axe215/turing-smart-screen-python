@@ -684,6 +684,258 @@ if (addPicker) {
   $('add-widget-btn').addEventListener('click', () => addWidget(addPicker.value));
 }
 
+// ---------- Canvas resize -------------------------------------------------
+
+function syncCanvasInputs() {
+  const c = themeData.canvas || {width: 1920, height: 480};
+  const wi = $('canvas-width'); const hi = $('canvas-height');
+  if (wi) wi.value = c.width;
+  if (hi) hi.value = c.height;
+}
+
+if ($('canvas-apply')) {
+  $('canvas-apply').addEventListener('click', () => {
+    const w = parseInt($('canvas-width').value, 10);
+    const h = parseInt($('canvas-height').value, 10);
+    if (!w || !h || w < 32 || h < 32 || w > 8000 || h > 8000) {
+      alert('Width/Height нужны в диапазоне 32..8000');
+      return;
+    }
+    themeData.canvas = {width: w, height: h};
+    layoutCanvas();
+    refreshMeta();
+  });
+}
+
+// ---------- Background upload + crop -------------------------------------
+
+let cropState = null;  // { filename, srcW, srcH, dispW, dispH, scale, boxX, boxY, dragOffX, dragOffY }
+
+function refreshBgSummary() {
+  const el = $('bg-summary');
+  if (!el) return;
+  const img = themeData.image;
+  const vid = themeData.video;
+  if (img && img.path) {
+    el.innerHTML = `<span class="muted">image:</span> ${escapeHTML(img.path)}`;
+  } else if (vid && vid.path) {
+    el.innerHTML = `<span class="muted">video:</span> ${escapeHTML(vid.path)} <small class="hint">(не кропается)</small>`;
+  } else {
+    el.innerHTML = `<span class="muted">нет фона — загрузи файл</span>`;
+  }
+}
+
+if ($('bg-upload')) {
+  $('bg-upload').addEventListener('change', async (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`/api/themes/${encodeURIComponent(dirName)}/upload`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      const meta = await res.json();
+      ev.target.value = '';
+      if (meta.width && meta.height) {
+        openCropModal(meta);
+      } else {
+        // No dimensions → assume video; ask to use it as-is.
+        if (confirm(`Использовать ${meta.filename} как видео-фон?`)) {
+          await setVideoBg(meta.filename);
+        }
+      }
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    }
+  });
+}
+
+async function setVideoBg(filename) {
+  try {
+    const res = await fetch(`/api/themes/${encodeURIComponent(dirName)}/set-video`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename}),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    delete themeData.image;
+    themeData.video = {path: data.video_path};
+    layoutCanvas();
+    refreshBgSummary();
+  } catch (err) {
+    alert('Set video failed: ' + err.message);
+  }
+}
+
+function openCropModal(meta) {
+  const canvas = themeData.canvas || {width: 1920, height: 480};
+  const stage = $('crop-image-wrap');
+  const modal = $('crop-modal');
+  modal.classList.remove('hidden');
+
+  const img = $('crop-image');
+  img.onload = () => {
+    // Scale image to fit the modal stage. Stage size known after layout.
+    const maxW = window.innerWidth * 0.85;
+    const maxH = window.innerHeight * 0.7;
+    const scale = Math.min(maxW / meta.width, maxH / meta.height, 1);
+    const dispW = meta.width * scale;
+    const dispH = meta.height * scale;
+    stage.style.width = dispW + 'px';
+    stage.style.height = dispH + 'px';
+    img.style.width = dispW + 'px';
+    img.style.height = dispH + 'px';
+
+    // Crop box: same pixel size as canvas, scaled to display. If canvas
+    // bigger than source — clamp box to source dims (user gets a
+    // resize-to-canvas warning).
+    let boxSrcW = Math.min(canvas.width, meta.width);
+    let boxSrcH = Math.min(canvas.height, meta.height);
+    const boxDispW = boxSrcW * scale;
+    const boxDispH = boxSrcH * scale;
+    const box = $('crop-box');
+    box.style.width = boxDispW + 'px';
+    box.style.height = boxDispH + 'px';
+    box.style.left = ((dispW - boxDispW) / 2) + 'px';
+    box.style.top = ((dispH - boxDispH) / 2) + 'px';
+
+    cropState = {
+      filename: meta.filename,
+      srcW: meta.width, srcH: meta.height,
+      canvasW: canvas.width, canvasH: canvas.height,
+      dispW, dispH,
+      scale,
+      boxSrcW, boxSrcH,
+      boxDispW, boxDispH,
+    };
+    updateCropInfo();
+  };
+  img.src = `/api/themes/${encodeURIComponent(dirName)}/asset/${encodeURI(meta.filename)}?t=${Date.now()}`;
+}
+
+function updateCropInfo() {
+  if (!cropState) return;
+  const box = $('crop-box');
+  const left = parseFloat(box.style.left) || 0;
+  const top = parseFloat(box.style.top) || 0;
+  const srcX = Math.round(left / cropState.scale);
+  const srcY = Math.round(top / cropState.scale);
+  let msg = `Source ${cropState.srcW}×${cropState.srcH} · Crop @ ${srcX},${srcY} size ${cropState.boxSrcW}×${cropState.boxSrcH}`;
+  if (cropState.boxSrcW !== cropState.canvasW || cropState.boxSrcH !== cropState.canvasH) {
+    msg += ` · scaled to canvas ${cropState.canvasW}×${cropState.canvasH}`;
+  }
+  $('crop-info').textContent = msg;
+}
+
+// Drag the crop box
+let cropDrag = null;
+const cropBoxEl = $('crop-box');
+if (cropBoxEl) {
+  cropBoxEl.addEventListener('mousedown', (ev) => {
+    if (!cropState) return;
+    ev.preventDefault();
+    const left = parseFloat(cropBoxEl.style.left) || 0;
+    const top = parseFloat(cropBoxEl.style.top) || 0;
+    cropDrag = {sx: ev.clientX, sy: ev.clientY, ox: left, oy: top};
+    window.addEventListener('mousemove', cropMove);
+    window.addEventListener('mouseup', cropEnd);
+  });
+}
+function cropMove(ev) {
+  if (!cropDrag || !cropState) return;
+  let nx = cropDrag.ox + (ev.clientX - cropDrag.sx);
+  let ny = cropDrag.oy + (ev.clientY - cropDrag.sy);
+  nx = Math.max(0, Math.min(cropState.dispW - cropState.boxDispW, nx));
+  ny = Math.max(0, Math.min(cropState.dispH - cropState.boxDispH, ny));
+  cropBoxEl.style.left = nx + 'px';
+  cropBoxEl.style.top = ny + 'px';
+  updateCropInfo();
+}
+function cropEnd() {
+  cropDrag = null;
+  window.removeEventListener('mousemove', cropMove);
+  window.removeEventListener('mouseup', cropEnd);
+}
+
+if ($('crop-apply')) {
+  $('crop-apply').addEventListener('click', async () => {
+    if (!cropState) return;
+    const left = parseFloat(cropBoxEl.style.left) || 0;
+    const top = parseFloat(cropBoxEl.style.top) || 0;
+    const srcX = Math.round(left / cropState.scale);
+    const srcY = Math.round(top / cropState.scale);
+    try {
+      const res = await fetch(`/api/themes/${encodeURIComponent(dirName)}/crop-bg`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          filename: cropState.filename,
+          crop: {x: srcX, y: srcY, w: cropState.boxSrcW, h: cropState.boxSrcH},
+          fit_canvas: true,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      // Update local themeData and re-layout the canvas
+      delete themeData.video;
+      themeData.image = {path: data.background_path};
+      layoutCanvas();
+      refreshBgSummary();
+      $('crop-modal').classList.add('hidden');
+    } catch (err) {
+      alert('Crop failed: ' + err.message);
+    }
+  });
+}
+if ($('crop-close')) {
+  $('crop-close').addEventListener('click', () => $('crop-modal').classList.add('hidden'));
+}
+
+// "Crop image…" button — re-open cropper for the currently-set background
+if ($('bg-crop')) {
+  $('bg-crop').addEventListener('click', async () => {
+    const img = themeData.image;
+    if (!img || !img.path) { alert('Сначала загрузи изображение.'); return; }
+    // Probe its size by fetching as a blob (lightweight)
+    try {
+      const url = `/api/themes/${encodeURIComponent(dirName)}/asset/${encodeURI(img.path)}?t=${Date.now()}`;
+      const probe = await new Promise((res, rej) => {
+        const im = new Image();
+        im.onload = () => res({width: im.naturalWidth, height: im.naturalHeight, filename: img.path});
+        im.onerror = rej;
+        im.src = url;
+      });
+      openCropModal(probe);
+    } catch (err) {
+      alert('Не удалось прочитать фон для перекропа: ' + err);
+    }
+  });
+}
+
+// Update bg button enabled state on data load
+const _origRenderWidgets = renderWidgets;
+renderWidgets = function() {
+  _origRenderWidgets();
+  syncCanvasInputs();
+  refreshBgSummary();
+  if ($('bg-crop')) {
+    $('bg-crop').disabled = !(themeData.image && themeData.image.path);
+  }
+};
+
 // ---------- utils ---------------------------------------------------------
 
 function escapeHTML(s) {

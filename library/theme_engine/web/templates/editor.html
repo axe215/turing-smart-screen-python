@@ -22,12 +22,30 @@
 
 <main class="editor-main">
   <aside class="editor-left">
+    <h2>Canvas</h2>
+    <div class="canvas-meta-row">
+      <label><span>W</span><input type="number" id="canvas-width" step="1" min="32" max="8000"></label>
+      <label><span>H</span><input type="number" id="canvas-height" step="1" min="32" max="8000"></label>
+      <button id="canvas-apply" class="btn">Apply</button>
+    </div>
+    <p class="hint">Меняй размер/ориентацию (поменяй местами W и H для поворота).</p>
+
+    <h2>Background</h2>
+    <div id="bg-summary" class="bg-summary"></div>
+    <div class="bg-actions">
+      <label class="btn btn-primary file-btn">
+        <input type="file" id="bg-upload" accept="image/*,video/*">
+        Upload
+      </label>
+      <button id="bg-crop" class="btn" disabled>Crop image…</button>
+    </div>
+
     <h2>Widgets</h2>
     <div class="add-widget-row">
       <select id="add-widget-type"></select>
       <button id="add-widget-btn" class="btn btn-primary">+ Add</button>
     </div>
-    <p class="hint">Перетаскивай рамку мышкой на холсте. Свойства — в правой панели.</p>
+    <p class="hint">Перетаскивай рамку мышкой. Свойства — в правой панели.</p>
     <ul id="widget-list" class="widget-list"></ul>
   </aside>
 
@@ -56,6 +74,25 @@
       <button id="preview-close" class="btn">Close</button>
     </div>
     <img id="preview-image" alt="design preview">
+  </div>
+</div>
+
+<div id="crop-modal" class="preview-modal hidden">
+  <div class="preview-modal-inner crop-modal-inner">
+    <div class="preview-modal-bar">
+      <span>Выбери область — её увидишь на экране (рамка = размер canvas)</span>
+      <div>
+        <button id="crop-apply" class="btn btn-primary">Apply crop</button>
+        <button id="crop-close" class="btn">Cancel</button>
+      </div>
+    </div>
+    <div class="crop-stage">
+      <div class="crop-image-wrap" id="crop-image-wrap">
+        <img id="crop-image" alt="source">
+        <div class="crop-box" id="crop-box"></div>
+      </div>
+    </div>
+    <div class="crop-info" id="crop-info"></div>
   </div>
 </div>
 

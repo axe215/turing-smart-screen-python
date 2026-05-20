@@ -419,6 +419,63 @@ footer code {
 
 .theme-card .actions .btn { flex: 1; }
 
+/* ---- Modal (shared) --------------------------------------------------- */
+
+.themes-header { display: flex; align-items: center; justify-content: space-between; }
+.themes-header h2 { margin: 0; }
+.btn-icon { padding: 0 8px; min-width: 28px; }
+
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+.modal.hidden { display: none; }
+.modal-inner {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  min-width: 420px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex; flex-direction: column;
+}
+.modal-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #333;
+  font-size: 0.9rem;
+  color: #ddd;
+}
+.modal-body {
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto;
+}
+.form-row { display: flex; flex-direction: column; gap: 4px; }
+.form-row > span { color: #aaa; font-size: 0.78rem; }
+.form-row input[type="text"],
+.form-row input[type="number"],
+.form-row select {
+  background: #0e0e0e;
+  border: 1px solid #333;
+  color: #eee;
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 0.88rem;
+}
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-grid-2 > label { display: flex; flex-direction: column; gap: 4px; }
+.form-grid-2 > label > span { color: #aaa; font-size: 0.78rem; }
+.modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #2a2a2a;
+}
+
 /* ---- Mobile ----------------------------------------------------------- */
 
 @media (max-width: 600px) {
