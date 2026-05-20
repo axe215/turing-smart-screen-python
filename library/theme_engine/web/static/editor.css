@@ -1,0 +1,219 @@
+/* Editor layout — three-pane (left widgets, centre canvas, right
+ * properties) under a fixed top bar. Shares colour palette with
+ * style.css; only the editor-specific bits live here.
+ */
+
+.editor-body {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+  flex: 0 0 auto;
+}
+.editor-header .brand {
+  font-size: 1.3rem;
+  text-decoration: none;
+  color: #eee;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #2a2a2a;
+}
+.editor-header .brand:hover { background: #3a3a3a; }
+.editor-header .title h1 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.editor-header .title .meta {
+  font-size: 0.78rem;
+  color: #888;
+}
+.editor-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.editor-main {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 240px 1fr 280px;
+  min-height: 0;
+}
+
+/* Left sidebar — widget list */
+.editor-left {
+  background: #1a1a1a;
+  border-right: 1px solid #2a2a2a;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+.editor-left h2 { font-size: 0.85rem; margin: 0 0 6px; color: #ddd; text-transform: uppercase; letter-spacing: 0.4px; }
+.editor-left .hint { font-size: 0.75rem; color: #888; margin: 0 0 12px; }
+.widget-list { list-style: none; padding: 0; margin: 0; }
+.widget-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.widget-list-item:hover { background: #2a2a2a; }
+.widget-list-item.selected { background: #3a4a3a; }
+.widget-list-item .dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.widget-list-item .li-id { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.widget-list-item .li-type { color: #888; font-size: 0.7rem; }
+
+/* Centre — design canvas */
+.editor-canvas-wrap {
+  background: #0e0e0e;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: auto;
+}
+.canvas-stage {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+.design-canvas {
+  position: relative;
+  border: 1px solid #444;
+  box-shadow: 0 0 0 1px #000, 0 0 30px rgba(0, 0, 0, 0.6);
+  background: #222;
+}
+.canvas-hint {
+  font-size: 0.72rem;
+  color: #888;
+  margin: 6px 0 0;
+  text-align: center;
+}
+
+/* Widget box overlays */
+.widget-box {
+  position: absolute;
+  border: 1px dashed rgba(150, 200, 255, 0.7);
+  background: rgba(80, 130, 200, 0.08);
+  cursor: move;
+  box-sizing: border-box;
+}
+.widget-box:hover { background: rgba(80, 130, 200, 0.18); }
+.widget-box.selected {
+  border: 1.5px solid #6fc46f;
+  background: rgba(120, 200, 120, 0.18);
+  z-index: 10;
+}
+.widget-box .widget-label {
+  position: absolute;
+  top: -16px;
+  left: -1px;
+  font-size: 9px;
+  color: #eee;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.widget-box .widget-label small {
+  margin-left: 4px; color: #888;
+}
+
+/* Per-type tints for dots and box highlights */
+.dot.type-text, .widget-box.type-text { border-color: rgba(255, 200, 100, 0.7); background-color: rgba(80, 130, 200, 0.08); }
+.dot.type-text { background: #e8b964; }
+.dot.type-data { background: #6fc46f; }
+.dot.type-chart, .dot.type-line_graph { background: #6fc4c4; }
+.dot.type-progress_bar { background: #c46f9e; }
+.dot.type-radial { background: #9e6fc4; }
+.dot.type-image { background: #c4a06f; }
+.dot.type-unknown { background: #666; }
+
+/* Right sidebar — properties */
+.editor-right {
+  background: #1a1a1a;
+  border-left: 1px solid #2a2a2a;
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+.editor-right h2 { font-size: 0.85rem; margin: 0 0 12px; color: #ddd; text-transform: uppercase; letter-spacing: 0.4px; }
+.properties-panel .muted { color: #888; font-size: 0.8rem; }
+.properties-panel dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 0.82rem; }
+.properties-panel dt { color: #888; }
+.properties-panel dd { margin: 0; }
+.properties-panel input[type="number"] {
+  width: 70px;
+  background: #0e0e0e;
+  border: 1px solid #333;
+  color: #eee;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.properties-panel .hint { margin-top: 14px; font-size: 0.72rem; color: #888; }
+.color-swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #555; margin-left: 6px; vertical-align: middle; }
+
+/* Unavailable page (upstream themes pre-6d) */
+.editor-unavailable {
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  display: flex;
+  gap: 8px;
+  padding: 40px;
+  color: #bbb;
+}
+.editor-unavailable .btn { display: inline-block; margin-top: 16px; }
+
+/* Preview modal */
+.preview-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.preview-modal.hidden { display: none; }
+.preview-modal-inner {
+  max-width: 95vw;
+  max-height: 95vh;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+}
+.preview-modal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: #2a2a2a;
+  font-size: 0.85rem;
+  color: #ddd;
+}
+.preview-modal img {
+  max-width: 90vw;
+  max-height: 80vh;
+  display: block;
+}

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor — {{ dir_name }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='editor.css') }}">
+</head>
+<body class="editor-body">
+<header class="editor-header">
+  <a class="brand" href="/">←</a>
+  <div class="title">
+    <h1>{{ dir_name }}</h1>
+    <span class="meta">{{ schema }}</span>
+  </div>
+</header>
+<main class="editor-main editor-unavailable">
+  <p>Эта тема в апстрим-формате (<code>{{ schema }}</code>) и пока не редактируется напрямую.</p>
+  <p>В Phase 6d будет кнопка <strong>Clone to editable</strong> — она склонирует тему в наш axe215_v1 и откроет копию в редакторе.</p>
+  <p><a href="/" class="btn">← Back to dashboard</a></p>
+</main>
+</body>
+</html>

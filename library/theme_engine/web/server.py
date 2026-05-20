@@ -28,6 +28,7 @@ from flask import (
 
 from ..manager import EngineParams, ThemeManager
 from ..preview import resolve_preview, prewarm_previews
+from .editor import register_editor_routes
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +107,10 @@ def create_app(manager: ThemeManager) -> Flask:
         # resolve_preview() rebuilds the cache file before that ETag is
         # computed, so the response body stays in sync).
         return send_file(str(resolved), max_age=3600, conditional=True)
+
+    # Editor endpoints (Phase 6a). Lives in a sibling module so this
+    # file stays focused on the live-control surface.
+    register_editor_routes(app, manager)
 
     # Kick off lazy thumbnail generation for video/gif themes in the
     # background so the first dashboard load doesn't pay an ffmpeg

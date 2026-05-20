@@ -176,6 +176,11 @@ function renderThemes() {
     const btn = t.runnable
       ? `<button class="btn btn-primary" data-action="activate">${isActive ? 'Restart' : 'Activate'}</button>`
       : `<button class="btn" disabled title="Unsupported schema">Read-only</button>`;
+    // Edit button: opens the editor in a new tab. Upstream themes get a
+    // disabled tooltip — Phase 6d will add the clone-to-edit flow.
+    const editBtn = t.schema === 'axe215_v1'
+      ? `<a class="btn" href="/editor/${encodeURIComponent(t.dir_name)}" target="_blank" rel="noopener" title="Открыть тему в редакторе">Edit</a>`
+      : `<button class="btn" disabled title="Upstream theme — Phase 6d добавит «Clone & edit»">Edit</button>`;
     // Per-card preview rotation: applied client-side, persisted to localStorage.
     const rot = previewRotations[t.dir_name] | 0;
     // No inline style up front — applyPreviewRotation() handles dimensions
@@ -204,7 +209,7 @@ function renderThemes() {
           ${typeBadge}${schemaBadge}
           ${t.canvas_width}×${t.canvas_height} · ${t.widget_count} widgets
         </div>
-        <div class="actions">${btn}</div>
+        <div class="actions">${btn}${editBtn}</div>
       </div>
     `;
   }).join('');
