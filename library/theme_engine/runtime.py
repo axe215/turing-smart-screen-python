@@ -131,6 +131,7 @@ class ThemeRuntime:
     widgets: List[WidgetSpec]
     theme_dir: Path
     raw: Dict[str, Any]
+    required_fonts: List[str] = field(default_factory=list)
 
     @property
     def video_path(self) -> Optional[Path]:
@@ -198,4 +199,5 @@ def build_runtime(data: Dict[str, Any], theme_dir: Path, default_name: str = "")
         widgets=widgets,
         theme_dir=Path(theme_dir),
         raw=data,
+        required_fonts=[str(x) for x in (data.get("required_fonts") or []) if x],
     )

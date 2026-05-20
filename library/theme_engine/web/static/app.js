@@ -348,11 +348,15 @@ async function refreshStatus() {
     els.statusRunning.className = 'badge running';
     els.statusTheme.textContent = lastStatus.active_theme || '—';
     const e = lastStatus.engine || {};
-    els.statusMeta.textContent =
+    const missing = e.missing_fonts || [];
+    const missingChip = missing.length
+      ? ` · <span class="font-warn" title="Missing fonts (PIL default in use): ${escapeHTML(missing.join(', '))}">⚠ ${missing.length} font${missing.length > 1 ? 's' : ''} missing</span>`
+      : '';
+    els.statusMeta.innerHTML =
       `uptime ${formatUptime(e.uptime_sec || 0)} · ` +
       `widgets ${e.widgets_sent || 0} · ` +
       `chunks ${e.stream_chunks || 0} · ` +
-      `avg send ${e.widget_send_ms_avg || 0}ms`;
+      `avg send ${e.widget_send_ms_avg || 0}ms` + missingChip;
     els.stopBtn.disabled = false;
   } else {
     els.statusRunning.textContent = 'Stopped';

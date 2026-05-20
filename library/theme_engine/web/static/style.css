@@ -419,6 +419,11 @@ footer code {
 
 .theme-card .actions .btn { flex: 1; }
 
+.font-warn {
+  color: #e8b964;
+  cursor: help;
+}
+
 /* ---- Modal (shared) --------------------------------------------------- */
 
 .themes-header { display: flex; align-items: center; justify-content: space-between; }

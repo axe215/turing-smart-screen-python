@@ -171,6 +171,24 @@ def _read_yaml(yaml_path: Path) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _collect_required_fonts(data: Dict[str, Any]) -> List[str]:
+    """Walk the theme's widgets and return the unique non-empty font
+    family names referenced anywhere — both top-level font and nested
+    axis_font on line graphs. Sorted alphabetically for stable diffs."""
+    seen = set()
+    for w in (data.get("widgets") or []):
+        for key in ("font", "axis_font"):
+            font = w.get(key)
+            if isinstance(font, dict):
+                fam = font.get("family")
+                # Skip path-style references (the upstream adapter emits
+                # absolute paths for upstream-bundled fonts; those aren't
+                # family names a user would install on another PC).
+                if fam and not (isinstance(fam, str) and ("/" in fam or "\\" in fam)):
+                    seen.add(fam)
+    return sorted(seen)
+
+
 def _atomic_write_yaml(yaml_path: Path, data: Dict[str, Any]) -> None:
     """Write `data` to yaml_path, keeping a timestamped .bak of the
     previous content so the user can recover from a bad edit by
@@ -307,6 +325,10 @@ def register_editor_routes(app, manager) -> None:
         # Stamp the file so we know it went through the editor.
         data["editor_version"] = 1
         data["editor_last_saved"] = datetime.now().isoformat(timespec="seconds")
+        # Auto-populate required_fonts from widget references so the
+        # engine can warn at startup if a font is missing. The user can
+        # still override by hand-editing the YAML.
+        data["required_fonts"] = _collect_required_fonts(data)
         try:
             _atomic_write_yaml(info.yaml_path, data)
         except Exception as exc:

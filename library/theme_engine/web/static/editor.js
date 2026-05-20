@@ -925,12 +925,44 @@ if ($('bg-crop')) {
   });
 }
 
+// ---------- Required fonts panel -----------------------------------------
+
+function refreshRequiredFonts() {
+  const el = $('required-fonts');
+  if (!el) return;
+  // Recompute from current widgets — mirrors backend's _collect_required_fonts
+  const seen = new Set();
+  for (const w of (themeData.widgets || [])) {
+    for (const key of ['font', 'axis_font']) {
+      const f = w[key];
+      if (f && typeof f === 'object' && f.family) {
+        const fam = String(f.family);
+        if (!fam.includes('/') && !fam.includes('\\')) seen.add(fam);
+      }
+    }
+  }
+  const fonts = [...seen].sort();
+  if (!fonts.length) {
+    el.innerHTML = '<span class="muted">нет шрифтов в виджетах</span>';
+    return;
+  }
+  const have = new Set(fontsList.map((f) => f.family));
+  el.innerHTML = fonts.map((fam) => {
+    const ok = have.has(fam);
+    return `<div class="rf-row ${ok ? 'ok' : 'bad'}">
+              <span class="rf-status">${ok ? '✓' : '✗'}</span>
+              <span class="rf-name" title="${escapeAttr(fam)}">${escapeHTML(fam)}</span>
+            </div>`;
+  }).join('');
+}
+
 // Update bg button enabled state on data load
 const _origRenderWidgets = renderWidgets;
 renderWidgets = function() {
   _origRenderWidgets();
   syncCanvasInputs();
   refreshBgSummary();
+  refreshRequiredFonts();
   if ($('bg-crop')) {
     $('bg-crop').disabled = !(themeData.image && themeData.image.path);
   }

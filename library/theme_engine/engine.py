@@ -35,6 +35,33 @@ from .video_utils import ensure_rotated
 log = logging.getLogger(__name__)
 
 
+def _check_required_fonts(required, renderer) -> list:
+    """Return the subset of `required` that the renderer cannot resolve.
+
+    Uses the renderer's font_family_index (which covers `<theme>/fonts/`)
+    plus PIL's system lookup via ImageFont.truetype() for OS-installed
+    fonts. A family is "found" if either matches; everything else is
+    missing and will fall back to the PIL default at render time.
+    """
+    if not required:
+        return []
+    missing = []
+    try:
+        from PIL import ImageFont
+    except ImportError:
+        return list(required)
+    for fam in required:
+        if not fam:
+            continue
+        if fam in renderer.font_family_index:
+            continue
+        try:
+            ImageFont.truetype(fam, 12)
+        except (OSError, IOError):
+            missing.append(fam)
+    return missing
+
+
 class ThemeEngine:
     def __init__(
         self,
@@ -84,6 +111,10 @@ class ThemeEngine:
         self.widgets_sent = 0
         self.widget_send_ms_avg = 0.0
         self.started_at: Optional[float] = None
+        # Populated on start() via _check_required_fonts; the dashboard
+        # reads it through status() so the user sees which fonts the
+        # theme declared but the PC doesn't have.
+        self._missing_fonts: list = []
 
     # ------------------------------------------------------------------
     # H.264 prep
@@ -128,6 +159,21 @@ class ThemeEngine:
             len(self.theme.widgets),
             self.rotate_180,
         )
+        # Surface required_fonts → missing list before any rendering happens
+        # so it's obvious in the log if the theme is going to fall back to
+        # the PIL default for missing families.
+        self._missing_fonts = _check_required_fonts(
+            self.theme.required_fonts, self.renderer
+        )
+        if self._missing_fonts:
+            log.warning(
+                "theme '%s' missing %d font(s): %s — widgets using them "
+                "will render in the PIL default; install them or use a "
+                "substitute via FONT_FALLBACKS",
+                self.theme.name,
+                len(self._missing_fonts),
+                ", ".join(self._missing_fonts),
+            )
         self.widget_period = max(0.05, float(widget_period))
         self.widgets_sent = 0
         self.widget_send_ms_avg = 0.0
@@ -266,6 +312,8 @@ class ThemeEngine:
             "rotate_video": self.rotate_video,
             "font_scale": self.renderer.font_scale,
             "widget_period": self.widget_period,
+            "missing_fonts": list(self._missing_fonts),
+            "required_fonts": list(self.theme.required_fonts),
         }
 
     # ------------------------------------------------------------------

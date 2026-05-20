@@ -234,6 +234,24 @@
   padding: 3px 5px; border-radius: 3px; font-size: 0.82rem;
 }
 
+/* Required-fonts panel */
+.required-fonts {
+  font-size: 0.78rem;
+  padding: 4px 0;
+}
+.required-fonts .muted { color: #888; }
+.required-fonts .rf-row {
+  display: flex; gap: 6px; align-items: center;
+  padding: 2px 0;
+}
+.required-fonts .rf-status { width: 14px; text-align: center; font-weight: bold; }
+.required-fonts .rf-row.ok .rf-status { color: #6fc46f; }
+.required-fonts .rf-row.bad .rf-status { color: #c0533c; }
+.required-fonts .rf-name { color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.required-fonts .rf-row.bad .rf-name { color: #e8a8a0; }
+.status-ok { color: #6fc46f; }
+.status-bad { color: #c0533c; }
+
 /* Background panel */
 .bg-summary {
   font-size: 0.78rem; color: #ccc;
